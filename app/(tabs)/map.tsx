@@ -1,4 +1,4 @@
-import { StyleSheet, View, Text, TouchableOpacity, Dimensions } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -6,8 +6,6 @@ import { useState, useRef } from 'react';
 import MapView, { Marker, Callout, Region } from 'react-native-maps';
 import { useData } from '@/src/DataContext';
 import type { SondeId } from '@/src/DataContext';
-
-const { height: SCREEN_H } = Dimensions.get('window');
 
 const INITIAL_REGION: Region = {
   latitude: 47.5861,
@@ -47,8 +45,6 @@ const SITES: Site[] = [
   },
 ];
 
-// Google Maps dark-blue style (silently ignored by Apple Maps on iOS;
-// use userInterfaceStyle="dark" to enable Apple's own dark tiles instead).
 const DARK_MAP_STYLE = [
   { elementType: 'geometry', stylers: [{ color: '#0d1b2a' }] },
   { elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
@@ -110,6 +106,16 @@ export default function MapScreen() {
   const selectedMetrics = metricsPerSonde[selected.sondeId];
   const selectedIsAnomaly = !!selectedMetrics?.isAnomaly;
 
+  // All 6 metric fields for the expanded card grid
+  const metricGrid = [
+    { label: 'Temp',      value: selectedMetrics?.temperature      ?? '—' },
+    { label: 'DO',        value: selectedMetrics?.dissolvedOxygen   ?? '—' },
+    { label: 'pH',        value: selectedMetrics?.pH                ?? '—' },
+    { label: 'Turbidity', value: selectedMetrics?.turbidity         ?? '—' },
+    { label: 'Depth',     value: selectedMetrics?.depth             ?? '—' },
+    { label: 'Battery',   value: `${selected.battery}%`                    },
+  ];
+
   return (
     <LinearGradient colors={['#001C44', '#003B80']} style={styles.gradient}>
       <StatusBar style="light" />
@@ -168,12 +174,14 @@ export default function MapScreen() {
           </MapView>
         </View>
 
-        {/* Selected-Site Detail Card */}
+        {/* Selected-Site Detail Card — expanded 6-metric grid */}
         <View style={styles.siteCard}>
           <View style={styles.siteCardHeader}>
             <View>
               <Text style={styles.siteName}>{selected.deviceName} — {selected.name}</Text>
-              <Text style={styles.siteSubtitle}>Selected Site</Text>
+              <Text style={styles.siteSubtitle}>
+                {selectedMetrics ? `Updated ${selectedMetrics.lastUpdate}` : 'Awaiting data…'}
+              </Text>
             </View>
             <View
               style={[
@@ -198,17 +206,12 @@ export default function MapScreen() {
             </View>
           </View>
 
-          <View style={styles.siteMetrics}>
-            {[
-              { label: 'Temp', value: selectedMetrics?.temperature ?? '—' },
-              { label: 'DO', value: selectedMetrics?.dissolvedOxygen ?? '—' },
-              { label: 'Depth', value: selectedMetrics?.depth ?? '—' },
-              { label: 'Battery', value: `${selected.battery}%` },
-            ].map((m, i, arr) => (
-              <View key={m.label} style={styles.siteMetricGroup}>
-                <Text style={styles.siteMetricLabel}>{m.label}</Text>
-                <Text style={styles.siteMetricValue}>{m.value}</Text>
-                {i < arr.length - 1 && <View style={styles.siteMetricDivider} />}
+          {/* 3-column × 2-row metric grid */}
+          <View style={styles.metricsGrid}>
+            {metricGrid.map((m, i) => (
+              <View key={m.label} style={[styles.metricCell, i < 3 && styles.metricCellBorderBottom]}>
+                <Text style={styles.metricCellLabel}>{m.label}</Text>
+                <Text style={styles.metricCellValue}>{m.value}</Text>
               </View>
             ))}
           </View>
@@ -218,7 +221,6 @@ export default function MapScreen() {
         <View style={styles.siteList}>
           {SITES.map((site) => {
             const siteAnomaly = !!metricsPerSonde[site.sondeId]?.isAnomaly;
-            const pillDotColor = siteAnomaly ? '#f87171' : '#4ade80';
             return (
               <TouchableOpacity
                 key={site.id}
@@ -226,7 +228,7 @@ export default function MapScreen() {
                 style={[styles.sitePill, selected.id === site.id && styles.sitePillActive]}
                 activeOpacity={0.75}
               >
-                <View style={[styles.pillDot, { backgroundColor: pillDotColor }]} />
+                <View style={[styles.pillDot, { backgroundColor: siteAnomaly ? '#f87171' : '#4ade80' }]} />
                 <Text style={[styles.sitePillText, selected.id === site.id && styles.sitePillTextActive]}>
                   {site.deviceName}
                 </Text>
@@ -245,23 +247,14 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1 },
 
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 6,
-    paddingBottom: 12,
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center', paddingHorizontal: 16, paddingTop: 6, paddingBottom: 12,
   },
   headerTitle: { fontSize: 20, fontWeight: '700', color: '#ffffff' },
   recenterBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(74,158,255,0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(74,158,255,0.3)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: 'rgba(74,158,255,0.15)', borderWidth: 1,
+    borderColor: 'rgba(74,158,255,0.3)', justifyContent: 'center', alignItems: 'center',
   },
   recenterIcon: { width: 14, height: 14, justifyContent: 'center', alignItems: 'center' },
   recenterLine: { backgroundColor: '#4a9eff', borderRadius: 1 },
@@ -271,110 +264,73 @@ const styles = StyleSheet.create({
 
   markerOuter: { alignItems: 'center' },
   markerPin: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    backgroundColor: 'rgba(0,28,68,0.9)',
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: '#4a9eff',
+    paddingHorizontal: 10, paddingVertical: 5,
+    backgroundColor: 'rgba(0,28,68,0.9)', borderRadius: 10,
+    borderWidth: 1.5, borderColor: '#4a9eff',
   },
   markerPinSelected: { backgroundColor: '#4a9eff', borderColor: '#ffffff' },
   markerPinText: { color: '#ffffff', fontSize: 11, fontWeight: '700' },
   markerStatusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginTop: 2,
-    borderWidth: 1.5,
-    borderColor: 'rgba(0,0,0,0.3)',
+    width: 8, height: 8, borderRadius: 4, marginTop: 2,
+    borderWidth: 1.5, borderColor: 'rgba(0,0,0,0.3)',
   },
-  markerTail: {
-    width: 2,
-    height: 6,
-    backgroundColor: 'rgba(255,255,255,0.6)',
-    borderRadius: 1,
-  },
+  markerTail: { width: 2, height: 6, backgroundColor: 'rgba(255,255,255,0.6)', borderRadius: 1 },
 
   calloutBox: {
-    backgroundColor: 'rgba(0,28,68,0.95)',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(74,158,255,0.4)',
-    minWidth: 120,
+    backgroundColor: 'rgba(0,28,68,0.95)', borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 8,
+    borderWidth: 1, borderColor: 'rgba(74,158,255,0.4)', minWidth: 120,
   },
   calloutTitle: { color: '#ffffff', fontSize: 13, fontWeight: '700' },
   calloutSub: { color: 'rgba(255,255,255,0.6)', fontSize: 11, marginTop: 2 },
 
   siteCard: {
-    marginHorizontal: 12,
-    marginTop: 12,
-    marginBottom: 8,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    padding: 14,
+    marginHorizontal: 12, marginTop: 10, marginBottom: 8,
+    backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 16,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', padding: 14,
   },
   siteCardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'flex-start', marginBottom: 12,
   },
-  siteName: { fontSize: 15, fontWeight: '700', color: '#ffffff' },
-  siteSubtitle: { fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 2 },
+  siteName: { fontSize: 14, fontWeight: '700', color: '#ffffff' },
+  siteSubtitle: { fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2 },
   siteStatusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: 20,
-    borderWidth: 1,
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20, borderWidth: 1,
   },
   siteStatusActive: {
-    backgroundColor: 'rgba(74,222,128,0.1)',
-    borderColor: 'rgba(74,222,128,0.3)',
+    backgroundColor: 'rgba(74,222,128,0.1)', borderColor: 'rgba(74,222,128,0.3)',
   },
   siteStatusWarning: {
-    backgroundColor: 'rgba(248,113,113,0.1)',
-    borderColor: 'rgba(248,113,113,0.3)',
+    backgroundColor: 'rgba(248,113,113,0.1)', borderColor: 'rgba(248,113,113,0.3)',
   },
   siteStatusDot: { width: 6, height: 6, borderRadius: 3 },
   siteStatusText: { fontSize: 11, fontWeight: '700' },
 
-  siteMetrics: { flexDirection: 'row' },
-  siteMetricGroup: { flex: 1, position: 'relative' },
-  siteMetricLabel: {
-    fontSize: 9,
-    color: 'rgba(255,255,255,0.45)',
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginBottom: 3,
+  // 3-column metric grid
+  metricsGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  metricCell: {
+    width: '33.33%',
+    paddingVertical: 8,
+    paddingHorizontal: 2,
+    alignItems: 'center',
   },
-  siteMetricValue: { fontSize: 15, fontWeight: '700', color: '#4a9eff' },
-  siteMetricDivider: {
-    position: 'absolute',
-    right: 0,
-    top: 2,
-    width: 1,
-    height: 32,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+  metricCellBorderBottom: {
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.07)',
   },
+  metricCellLabel: {
+    fontSize: 9, fontWeight: '600', color: 'rgba(255,255,255,0.4)',
+    textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 3,
+  },
+  metricCellValue: { fontSize: 14, fontWeight: '700', color: '#4a9eff' },
 
   siteList: { flexDirection: 'row', paddingHorizontal: 12, paddingBottom: 10, gap: 10 },
   sitePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.07)',
-    borderWidth: 1,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.07)', borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
   },
   sitePillActive: { backgroundColor: 'rgba(74,158,255,0.2)', borderColor: '#4a9eff' },

@@ -18,6 +18,7 @@ export type SensorRow = {
 };
 
 export type MetricsState = {
+  // Formatted display strings
   temperature: string;
   dissolvedOxygen: string;
   depth: string;
@@ -27,6 +28,12 @@ export type MetricsState = {
   isAnomaly: boolean;
   doHistory: number[];
   lastUpdate: string;
+  // Raw numeric values for threshold evaluation
+  rawTemp: number;
+  rawDO: number;
+  rawDepth: number;
+  rawPH: number;
+  rawTurbidity: number;
 };
 
 export type HistoricalPoint = {
@@ -46,9 +53,10 @@ type DataContextValue = {
   metricsPerSonde: Record<string, MetricsState>;
   currentMetrics: MetricsState;
   historicalData: HistoricalPoint[];
+  lastSeenPerSonde: Record<string, number>; // ms epoch of latest INSERT per sonde
 };
 
-// ─── Seed / fallback data ─────────────────────────────────────────────────────
+// ─── Seed data ────────────────────────────────────────────────────────────────
 
 export const SONDE_SEEDS: Record<SondeId, MetricsState> = {
   sonde_12: {
@@ -61,6 +69,11 @@ export const SONDE_SEEDS: Record<SondeId, MetricsState> = {
     isAnomaly: false,
     doHistory: [6.8, 7.1, 7.4, 7.9, 8.1, 8.0, 7.7, 7.4, 7.1, 7.3, 7.6, 7.9],
     lastUpdate: 'Awaiting data…',
+    rawTemp: 12.4,
+    rawDO: 8.1,
+    rawDepth: 1.42,
+    rawPH: 7.3,
+    rawTurbidity: 7.9,
   },
   sonde_45: {
     temperature: '10.0°C',
@@ -72,6 +85,11 @@ export const SONDE_SEEDS: Record<SondeId, MetricsState> = {
     isAnomaly: false,
     doHistory: [6.5, 6.8, 7.0, 7.2, 7.1, 6.9, 7.1, 7.3, 7.0, 6.8, 7.1, 7.2],
     lastUpdate: 'Awaiting data…',
+    rawTemp: 10.0,
+    rawDO: 7.1,
+    rawDepth: 0.88,
+    rawPH: 7.0,
+    rawTurbidity: 12.3,
   },
 };
 
@@ -94,6 +112,11 @@ function rowToMetrics(row: SensorRow, prev: MetricsState): MetricsState {
     isAnomaly: row.is_anomaly,
     doHistory: [...prev.doHistory.slice(-11), row.dissolved_oxygen],
     lastUpdate: 'just now',
+    rawTemp: row.temperature,
+    rawDO: row.dissolved_oxygen,
+    rawDepth: row.water_depth,
+    rawPH: row.ph,
+    rawTurbidity: row.turbidity,
   };
 }
 
@@ -107,6 +130,7 @@ export const DataContext = createContext<DataContextValue>({
   metricsPerSonde: { ...SONDE_SEEDS },
   currentMetrics: SONDE_SEEDS['sonde_12'],
   historicalData: [],
+  lastSeenPerSonde: {},
 });
 
 export function DataProvider({ children }: { children: React.ReactNode }) {
@@ -115,6 +139,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     ...SONDE_SEEDS,
   });
   const [historicalData, setHistoricalData] = useState<HistoricalPoint[]>([]);
+  const [lastSeenPerSonde, setLastSeenPerSonde] = useState<Record<string, number>>({});
 
   useEffect(() => {
     const channel = supabase
@@ -132,9 +157,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             return { ...prev, [id]: rowToMetrics(row, prevMetrics) };
           });
 
+          const ts = row.created_at ? new Date(row.created_at).getTime() : Date.now();
+
           const point: HistoricalPoint = {
             sonde_id: row.sonde_id,
-            timestamp: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+            timestamp: ts,
             dissolved_oxygen: row.dissolved_oxygen,
             temperature: row.temperature,
             ph: row.ph,
@@ -147,6 +174,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             const next = [...prev, point];
             return next.length > MAX_HISTORY ? next.slice(next.length - MAX_HISTORY) : next;
           });
+
+          setLastSeenPerSonde((prev) => ({ ...prev, [id]: ts }));
         },
       )
       .subscribe((status) => {
@@ -163,7 +192,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <DataContext.Provider
-      value={{ selectedSondeId, setSelectedSondeId, metricsPerSonde, currentMetrics, historicalData }}
+      value={{
+        selectedSondeId,
+        setSelectedSondeId,
+        metricsPerSonde,
+        currentMetrics,
+        historicalData,
+        lastSeenPerSonde,
+      }}
     >
       {children}
     </DataContext.Provider>

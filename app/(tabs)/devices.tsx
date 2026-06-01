@@ -2,40 +2,48 @@ import { StyleSheet, ScrollView, View, Text, TouchableOpacity } from 'react-nati
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
+import { useData } from '@/src/DataContext';
+import type { SondeId } from '@/src/DataContext';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type DeviceStatus = 'active' | 'warning' | 'offline';
 
 type Device = {
   id: string;
+  sondeId?: SondeId;       // present for tracked sondes
   name: string;
   site: string;
   status: DeviceStatus;
   battery: number;
   signal: 'Strong' | 'Moderate' | 'Weak' | 'None';
-  lastSeen: string;
+  staticLastSeen: string;  // fallback when no live data
   firmware: string;
 };
 
-const mockDevices: Device[] = [
+// ─── Static device registry ───────────────────────────────────────────────────
+
+const DEVICES: Device[] = [
   {
     id: 'd1',
+    sondeId: 'sonde_12',
     name: 'Sonde #12',
     site: 'Pine Lake',
     status: 'active',
     battery: 82,
     signal: 'Strong',
-    lastSeen: '2 min ago',
+    staticLastSeen: 'Awaiting data…',
     firmware: 'v3.1.4',
   },
   {
     id: 'd2',
+    sondeId: 'sonde_45',
     name: 'Sonde #45',
     site: 'Wetland Creek',
     status: 'warning',
     battery: 23,
     signal: 'Moderate',
-    lastSeen: '8 min ago',
+    staticLastSeen: 'Awaiting data…',
     firmware: 'v3.0.9',
   },
   {
@@ -45,16 +53,33 @@ const mockDevices: Device[] = [
     status: 'offline',
     battery: 0,
     signal: 'None',
-    lastSeen: '3 hrs ago',
+    staticLastSeen: '3 hrs ago',
     firmware: 'v2.9.2',
   },
 ];
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function formatLastSeen(tsMs?: number): string {
+  if (!tsMs) return '';
+  const diffMs = Date.now() - tsMs;
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return 'just now';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin} min ago`;
+  const diffH = Math.floor(diffMin / 60);
+  if (diffH < 24) return `${diffH} hr${diffH > 1 ? 's' : ''} ago`;
+  const diffD = Math.floor(diffH / 24);
+  return `${diffD} day${diffD > 1 ? 's' : ''} ago`;
+}
+
 const STATUS_CONFIG: Record<DeviceStatus, { label: string; color: string; bg: string; border: string }> = {
-  active: { label: 'Active', color: '#4ade80', bg: 'rgba(74,222,128,0.12)', border: 'rgba(74,222,128,0.25)' },
+  active:  { label: 'Active',  color: '#4ade80', bg: 'rgba(74,222,128,0.12)', border: 'rgba(74,222,128,0.25)' },
   warning: { label: 'Warning', color: '#fbbf24', bg: 'rgba(251,191,36,0.12)', border: 'rgba(251,191,36,0.25)' },
   offline: { label: 'Offline', color: '#f87171', bg: 'rgba(248,113,113,0.12)', border: 'rgba(248,113,113,0.25)' },
 };
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
 function BatteryBar({ level, status }: { level: number; status: DeviceStatus }) {
   const color = status === 'active' ? '#4ade80' : status === 'warning' ? '#fbbf24' : '#f87171';
@@ -67,7 +92,7 @@ function BatteryBar({ level, status }: { level: number; status: DeviceStatus }) 
 }
 
 function SignalStrength({ signal }: { signal: Device['signal'] }) {
-  const levels = { None: 0, Weak: 1, Moderate: 2, Strong: 3 };
+  const levels: Record<Device['signal'], number> = { None: 0, Weak: 1, Moderate: 2, Strong: 3 };
   const active = levels[signal];
   return (
     <View style={styles.signalContainer}>
@@ -85,13 +110,21 @@ function SignalStrength({ signal }: { signal: Device['signal'] }) {
   );
 }
 
+// ─── Screen ───────────────────────────────────────────────────────────────────
+
 export default function DevicesScreen() {
-  const [devices, setDevices] = useState(mockDevices);
+  const { lastSeenPerSonde } = useData();
+
+  function liveStatus(device: Device): DeviceStatus {
+    if (device.battery === 0) return 'offline';
+    if (device.battery <= 20) return 'warning';
+    return 'active';
+  }
 
   const counts = {
-    active: devices.filter((d) => d.status === 'active').length,
-    warning: devices.filter((d) => d.status === 'warning').length,
-    offline: devices.filter((d) => d.status === 'offline').length,
+    active:  DEVICES.filter((d) => liveStatus(d) === 'active').length,
+    warning: DEVICES.filter((d) => liveStatus(d) === 'warning').length,
+    offline: DEVICES.filter((d) => liveStatus(d) === 'offline').length,
   };
 
   return (
@@ -104,7 +137,7 @@ export default function DevicesScreen() {
           <View style={styles.header}>
             <Text style={styles.headerTitle}>Devices</Text>
             <View style={styles.countBadge}>
-              <Text style={styles.countBadgeText}>{devices.length} Total</Text>
+              <Text style={styles.countBadgeText}>{DEVICES.length} Total</Text>
             </View>
           </View>
 
@@ -122,8 +155,16 @@ export default function DevicesScreen() {
           </View>
 
           {/* Device Cards */}
-          {devices.map((device) => {
-            const cfg = STATUS_CONFIG[device.status];
+          {DEVICES.map((device) => {
+            const status = liveStatus(device);
+            const cfg = STATUS_CONFIG[status];
+
+            // Resolve Last Seen: prefer live timestamp, fall back to staticLastSeen
+            const liveTs = device.sondeId ? lastSeenPerSonde[device.sondeId] : undefined;
+            const lastSeen = liveTs
+              ? formatLastSeen(liveTs)
+              : device.staticLastSeen;
+
             return (
               <TouchableOpacity key={device.id} activeOpacity={0.85} style={styles.deviceCard}>
                 {/* Card Top Row */}
@@ -144,12 +185,12 @@ export default function DevicesScreen() {
 
                 <View style={styles.divider} />
 
-                {/* Battery + Signal row */}
+                {/* Battery + Signal + Last Seen */}
                 <View style={styles.deviceStats}>
                   <View style={styles.statBlock}>
                     <Text style={styles.statLabel}>Battery</Text>
                     <View style={styles.battRow}>
-                      <BatteryBar level={device.battery} status={device.status} />
+                      <BatteryBar level={device.battery} status={status} />
                       <Text style={styles.battPercent}>{device.battery}%</Text>
                     </View>
                   </View>
@@ -162,7 +203,9 @@ export default function DevicesScreen() {
                   </View>
                   <View style={styles.statBlock}>
                     <Text style={styles.statLabel}>Last Seen</Text>
-                    <Text style={styles.statValue}>{device.lastSeen}</Text>
+                    <Text style={[styles.statValue, liveTs ? styles.statValueLive : null]}>
+                      {lastSeen}
+                    </Text>
                   </View>
                 </View>
 
@@ -187,76 +230,55 @@ export default function DevicesScreen() {
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
   gradient: { flex: 1 },
   safeArea: { flex: 1 },
   content: { paddingHorizontal: 16, paddingTop: 6, paddingBottom: 28 },
 
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center', marginBottom: 16,
   },
   headerTitle: { fontSize: 20, fontWeight: '700', color: '#ffffff' },
   countBadge: {
     backgroundColor: 'rgba(74,158,255,0.15)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 20,
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20,
   },
   countBadgeText: { color: '#4a9eff', fontSize: 12, fontWeight: '700' },
 
   summaryRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
   summaryCard: {
-    flex: 1,
-    borderRadius: 16,
-    borderWidth: 1,
-    paddingVertical: 14,
-    alignItems: 'center',
+    flex: 1, borderRadius: 16, borderWidth: 1,
+    paddingVertical: 14, alignItems: 'center',
   },
   summaryCount: { fontSize: 26, fontWeight: '800' },
   summaryLabel: { fontSize: 11, fontWeight: '600', marginTop: 2, textTransform: 'capitalize' },
 
   deviceCard: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    padding: 16,
-    marginBottom: 12,
+    backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 16,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
+    padding: 16, marginBottom: 12,
   },
   deviceTop: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 },
   deviceIconBox: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    backgroundColor: 'rgba(74,158,255,0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(74,158,255,0.25)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 4,
+    width: 42, height: 42, borderRadius: 12,
+    backgroundColor: 'rgba(74,158,255,0.15)', borderWidth: 1,
+    borderColor: 'rgba(74,158,255,0.25)', justifyContent: 'center',
+    alignItems: 'center', gap: 4,
   },
   deviceIconInner: {
-    width: 18,
-    height: 12,
-    borderRadius: 3,
-    borderWidth: 2,
-    borderColor: '#4a9eff',
+    width: 18, height: 12, borderRadius: 3,
+    borderWidth: 2, borderColor: '#4a9eff',
   },
   deviceIconBar: { width: 8, height: 2, backgroundColor: '#4a9eff', borderRadius: 1 },
   deviceInfo: { flex: 1 },
   deviceName: { fontSize: 15, fontWeight: '700', color: '#ffffff' },
   deviceSite: { fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 2 },
   statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 20,
-    borderWidth: 1,
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 9, paddingVertical: 5, borderRadius: 20, borderWidth: 1,
   },
   statusDot: { width: 6, height: 6, borderRadius: 3 },
   statusText: { fontSize: 11, fontWeight: '700' },
@@ -266,34 +288,21 @@ const styles = StyleSheet.create({
   deviceStats: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
   statBlock: { flex: 1 },
   statLabel: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.4)',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginBottom: 6,
+    fontSize: 10, fontWeight: '600', color: 'rgba(255,255,255,0.4)',
+    textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6,
   },
   statValue: { fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.8)' },
+  statValueLive: { color: '#4ade80' },
 
   battRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   battBar: {
-    width: 40,
-    height: 12,
-    borderRadius: 3,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.25)',
-    overflow: 'visible',
-    position: 'relative',
+    width: 40, height: 12, borderRadius: 3, borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.25)', overflow: 'visible', position: 'relative',
   },
   battFill: { height: '100%', borderRadius: 2 },
   battNub: {
-    position: 'absolute',
-    right: -5,
-    top: 3,
-    width: 3,
-    height: 6,
-    backgroundColor: 'rgba(255,255,255,0.25)',
-    borderRadius: 1,
+    position: 'absolute', right: -5, top: 3,
+    width: 3, height: 6, backgroundColor: 'rgba(255,255,255,0.25)', borderRadius: 1,
   },
   battPercent: { fontSize: 12, fontWeight: '700', color: 'rgba(255,255,255,0.75)' },
 
@@ -307,16 +316,9 @@ const styles = StyleSheet.create({
   firmwareText: { fontSize: 10, color: 'rgba(255,255,255,0.25)', textAlign: 'right' },
 
   addBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    borderWidth: 1.5,
-    borderColor: 'rgba(74,158,255,0.4)',
-    borderStyle: 'dashed',
-    borderRadius: 16,
-    paddingVertical: 16,
-    marginTop: 4,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
+    borderWidth: 1.5, borderColor: 'rgba(74,158,255,0.4)', borderStyle: 'dashed',
+    borderRadius: 16, paddingVertical: 16, marginTop: 4,
     backgroundColor: 'rgba(74,158,255,0.05)',
   },
   addBtnIcon: { width: 20, height: 20, justifyContent: 'center', alignItems: 'center' },

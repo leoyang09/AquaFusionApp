@@ -12,304 +12,219 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useState, useMemo } from 'react';
+import { LineChart } from 'react-native-gifted-charts';
 import { useData } from '@/src/DataContext';
-import type { HistoricalPoint } from '@/src/DataContext';
+import type { HistoricalPoint, SondeId } from '@/src/DataContext';
 
-// ─── Chart geometry ──────────────────────────────────────────────────────────
+const SCREEN_W = Dimensions.get('window').width;
+const CHART_W = SCREEN_W - 64;
 
-const CHART_W = Dimensions.get('window').width - 64;
-const CHART_H = 130;
+// ─── Sonde selector config ────────────────────────────────────────────────────
 
-type DataPoint = { label: string; value: number };
+const SONDES = [
+  { id: 'sonde_12' as SondeId, label: 'Pine Lake (Sonde #12)',      site: 'Pine Lake' },
+  { id: 'sonde_45' as SondeId, label: 'Wetland Creek (Sonde #45)', site: 'Wetland Creek' },
+];
 
-function avg(data: DataPoint[]) {
-  return (data.reduce((s, d) => s + d.value, 0) / data.length).toFixed(1);
-}
-
-function LineChart({
-  data,
-  color,
-  yMin,
-  yMax,
-}: {
-  data: DataPoint[];
-  color: string;
-  yMin: number;
-  yMax: number;
-}) {
-  const padX = 8;
-  const padY = 10;
-  const innerW = CHART_W - padX * 2;
-  const innerH = CHART_H - padY * 2;
-  const range = yMax - yMin;
-
-  const getX = (i: number) => padX + (i / (data.length - 1)) * innerW;
-  const getY = (val: number) => padY + (1 - (val - yMin) / range) * innerH;
-
-  const points = data.map((d, i) => ({ x: getX(i), y: getY(d.value) }));
-  const segments = points.slice(0, -1).map((p, i) => {
-    const next = points[i + 1];
-    const dx = next.x - p.x;
-    const dy = next.y - p.y;
-    const length = Math.sqrt(dx * dx + dy * dy);
-    const angle = Math.atan2(dy, dx) * (180 / Math.PI);
-    return { cx: (p.x + next.x) / 2, cy: (p.y + next.y) / 2, length, angle };
-  });
-
-  const yGridVals = [yMin, (yMin + yMax) / 2, yMax];
-
-  return (
-    <View style={{ width: CHART_W, height: CHART_H + 24 }}>
-      <View style={{ width: CHART_W, height: CHART_H, position: 'relative' }}>
-        {yGridVals.map((val) => (
-          <View
-            key={val}
-            style={{
-              position: 'absolute',
-              left: padX,
-              top: getY(val),
-              width: innerW,
-              height: 1,
-              backgroundColor: 'rgba(255,255,255,0.07)',
-            }}
-          />
-        ))}
-        {points.map((p, i) => (
-          <View
-            key={i}
-            style={{
-              position: 'absolute',
-              left: p.x - 1,
-              top: p.y,
-              width: 2,
-              height: CHART_H - padY - p.y,
-              backgroundColor: color,
-              opacity: 0.08,
-            }}
-          />
-        ))}
-        {segments.map((seg, i) => (
-          <View
-            key={i}
-            style={{
-              position: 'absolute',
-              left: seg.cx - seg.length / 2,
-              top: seg.cy - 1.5,
-              width: seg.length,
-              height: 3,
-              backgroundColor: color,
-              borderRadius: 2,
-              transform: [{ rotate: `${seg.angle}deg` }],
-            }}
-          />
-        ))}
-        {points.map((p, i) => (
-          <View
-            key={i}
-            style={{
-              position: 'absolute',
-              left: p.x - 5,
-              top: p.y - 5,
-              width: 10,
-              height: 10,
-              borderRadius: 5,
-              backgroundColor: color,
-              borderWidth: 2,
-              borderColor: 'rgba(14,32,64,0.9)',
-            }}
-          />
-        ))}
-      </View>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: padX }}>
-        {data.map((d) => (
-          <Text key={d.label} style={{ color: 'rgba(255,255,255,0.4)', fontSize: 10 }}>
-            {d.label}
-          </Text>
-        ))}
-      </View>
-    </View>
-  );
-}
-
-// ─── Per-period static fallback data ─────────────────────────────────────────
+// ─── Period filter ────────────────────────────────────────────────────────────
 
 const PERIODS = ['24h', '7d', '30d', '90d'] as const;
 type Period = (typeof PERIODS)[number];
 
-type PeriodDataset = {
-  rangeLabel: string;
-  doData: DataPoint[];
-  tempData: DataPoint[];
-  doRange: [number, number];
-  tempRange: [number, number];
-  summary: { label: string; value: string; unit: string; color: string }[];
+const MAX_POINTS: Record<Period, number> = {
+  '24h': 96,   // 96 × 15 min = 24 h
+  '7d':  200,  // rolling window cap
+  '30d': 200,
+  '90d': 200,
 };
 
-const PERIOD_DATA: Record<Period, PeriodDataset> = {
-  '24h': {
-    rangeLabel: 'Last 24 hours',
-    doData: [
-      { label: '00h', value: 7.8 }, { label: '04h', value: 7.3 }, { label: '08h', value: 6.9 },
-      { label: '12h', value: 7.2 }, { label: '16h', value: 7.6 }, { label: '20h', value: 8.1 },
-      { label: '24h', value: 8.0 },
-    ],
-    tempData: [
-      { label: '00h', value: 11.0 }, { label: '04h', value: 10.6 }, { label: '08h', value: 11.2 },
-      { label: '12h', value: 12.4 }, { label: '16h', value: 13.0 }, { label: '20h', value: 12.7 },
-      { label: '24h', value: 12.2 },
-    ],
-    doRange: [5.5, 9.5],
-    tempRange: [9, 15],
-    summary: [
-      { label: 'DO Min', value: '6.9', unit: 'mg/L', color: '#f87171' },
-      { label: 'DO Max', value: '8.1', unit: 'mg/L', color: '#4ade80' },
-      { label: 'Temp Avg', value: '11.9', unit: '°C', color: '#fbbf24' },
-      { label: 'pH Avg', value: '7.3', unit: '', color: '#4a9eff' },
-    ],
-  },
-  '7d': {
-    rangeLabel: 'Last 7 days',
-    doData: [
-      { label: 'Mon', value: 8.1 }, { label: 'Tue', value: 7.8 }, { label: 'Wed', value: 7.2 },
-      { label: 'Thu', value: 6.5 }, { label: 'Fri', value: 7.0 }, { label: 'Sat', value: 7.6 },
-      { label: 'Sun', value: 8.0 },
-    ],
-    tempData: [
-      { label: 'Mon', value: 11.2 }, { label: 'Tue', value: 11.8 }, { label: 'Wed', value: 12.4 },
-      { label: 'Thu', value: 13.1 }, { label: 'Fri', value: 12.9 }, { label: 'Sat', value: 12.6 },
-      { label: 'Sun', value: 12.2 },
-    ],
-    doRange: [5.5, 9.5],
-    tempRange: [10, 15],
-    summary: [
-      { label: 'DO Min', value: '6.5', unit: 'mg/L', color: '#f87171' },
-      { label: 'DO Max', value: '8.1', unit: 'mg/L', color: '#4ade80' },
-      { label: 'Temp Avg', value: '12.3', unit: '°C', color: '#fbbf24' },
-      { label: 'pH Avg', value: '7.2', unit: '', color: '#4a9eff' },
-    ],
-  },
-  '30d': {
-    rangeLabel: 'Last 30 days',
-    doData: [
-      { label: 'W1', value: 7.9 }, { label: 'W2', value: 7.4 }, { label: 'W3', value: 6.8 },
-      { label: 'W4', value: 7.2 }, { label: 'W5', value: 7.7 },
-    ],
-    tempData: [
-      { label: 'W1', value: 10.5 }, { label: 'W2', value: 11.2 }, { label: 'W3', value: 12.3 },
-      { label: 'W4', value: 12.8 }, { label: 'W5', value: 11.9 },
-    ],
-    doRange: [5.0, 10.0],
-    tempRange: [9, 15],
-    summary: [
-      { label: 'DO Min', value: '6.1', unit: 'mg/L', color: '#f87171' },
-      { label: 'DO Max', value: '8.4', unit: 'mg/L', color: '#4ade80' },
-      { label: 'Temp Avg', value: '11.7', unit: '°C', color: '#fbbf24' },
-      { label: 'pH Avg', value: '7.1', unit: '', color: '#4a9eff' },
-    ],
-  },
-  '90d': {
-    rangeLabel: 'Last 90 days',
-    doData: [
-      { label: 'Mar', value: 8.2 }, { label: 'Apr', value: 7.5 },
-      { label: 'May', value: 6.8 }, { label: 'Jun', value: 7.1 },
-    ],
-    tempData: [
-      { label: 'Mar', value: 9.8 }, { label: 'Apr', value: 11.2 },
-      { label: 'May', value: 12.4 }, { label: 'Jun', value: 11.6 },
-    ],
-    doRange: [5.0, 10.0],
-    tempRange: [8, 15],
-    summary: [
-      { label: 'DO Min', value: '5.9', unit: 'mg/L', color: '#f87171' },
-      { label: 'DO Max', value: '8.8', unit: 'mg/L', color: '#4ade80' },
-      { label: 'Temp Avg', value: '11.3', unit: '°C', color: '#fbbf24' },
-      { label: 'pH Avg', value: '7.0', unit: '', color: '#4a9eff' },
-    ],
-  },
+// ─── Sensor chart configs ─────────────────────────────────────────────────────
+
+type ChartConfig = {
+  title: string;
+  unit: string;
+  color: string;
+  fixedMax: number;
+  extractor: (h: HistoricalPoint) => number;
+  fallback: number[];
 };
 
-const WINDOW_MS: Record<Period, number> = {
-  '24h': 24 * 60 * 60 * 1000,
-  '7d':  7  * 24 * 60 * 60 * 1000,
-  '30d': 30 * 24 * 60 * 60 * 1000,
-  '90d': 90 * 24 * 60 * 60 * 1000,
-};
+const CHART_CONFIGS: ChartConfig[] = [
+  {
+    title: 'Dissolved Oxygen',
+    unit: 'mg/L',
+    color: '#4a9eff',
+    fixedMax: 14,
+    extractor: (h) => h.dissolved_oxygen,
+    fallback: [7.8, 7.3, 6.9, 7.2, 7.6, 8.1, 8.0, 7.7, 7.4, 7.1, 7.3, 7.6],
+  },
+  {
+    title: 'Temperature',
+    unit: '°C',
+    color: '#fbbf24',
+    fixedMax: 35,
+    extractor: (h) => h.temperature,
+    fallback: [11.0, 10.6, 11.2, 12.4, 13.0, 12.7, 12.2, 11.8, 12.1, 12.4, 12.6, 12.3],
+  },
+  {
+    title: 'pH Level',
+    unit: '',
+    color: '#a78bfa',
+    fixedMax: 14,
+    extractor: (h) => h.ph,
+    fallback: [7.2, 7.3, 7.1, 7.4, 7.3, 7.2, 7.1, 7.3, 7.4, 7.2, 7.3, 7.2],
+  },
+  {
+    title: 'Turbidity',
+    unit: 'NTU',
+    color: '#34d399',
+    fixedMax: 0, // computed dynamically
+    extractor: (h) => h.turbidity,
+    fallback: [7.9, 8.1, 8.5, 7.8, 7.6, 8.0, 8.3, 7.9, 7.7, 8.1, 8.4, 8.0],
+  },
+  {
+    title: 'Water Depth',
+    unit: 'm',
+    color: '#60a5fa',
+    fixedMax: 0, // computed dynamically
+    extractor: (h) => h.water_depth,
+    fallback: [1.42, 1.40, 1.41, 1.43, 1.44, 1.42, 1.41, 1.40, 1.42, 1.43, 1.44, 1.42],
+  },
+];
 
-// Build a live PeriodDataset from historicalData when >= 2 points exist in the window.
-// Maps evenly-sampled points to the static label set so axis labels stay consistent.
-function buildLiveDataset(
-  history: HistoricalPoint[],
-  sondeId: string,
-  period: Period,
-): PeriodDataset | null {
-  const now = Date.now();
-  const filtered = history
-    .filter((h) => h.sonde_id === sondeId && h.timestamp >= now - WINDOW_MS[period])
-    .sort((a, b) => a.timestamp - b.timestamp);
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-  if (filtered.length < 2) return null;
+// Format index × 15 min as a readable label.
+function intervalLabel(i: number): string {
+  const totalMin = i * 15;
+  if (totalMin === 0) return '0';
+  if (totalMin < 60) return `${totalMin}m`;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return m === 0 ? `${h}h` : `${h}h${m}m`;
+}
 
-  const staticPd = PERIOD_DATA[period];
-  const targetCount = staticPd.doData.length;
-  const step = (filtered.length - 1) / (targetCount - 1);
-  const sampled: HistoricalPoint[] = Array.from({ length: targetCount }, (_, i) =>
-    filtered[Math.min(Math.round(i * step), filtered.length - 1)],
+type GiftedPoint = { value: number; label?: string; dataPointText?: string };
+
+function buildGiftedData(values: number[], isLive: boolean): GiftedPoint[] {
+  // Thin x-axis labels to avoid crowding
+  const step = values.length <= 8 ? 1 : values.length <= 20 ? 2 : values.length <= 48 ? 4 : 8;
+  return values.map((v, i) => ({
+    value: parseFloat(v.toFixed(2)),
+    label: i % step === 0 ? (isLive ? intervalLabel(i) : `${i}`) : '',
+  }));
+}
+
+function computeMax(values: number[], fixedMax: number): number {
+  if (fixedMax > 0) return fixedMax;
+  const max = Math.max(...values);
+  return Math.ceil(max * 1.25) || 10;
+}
+
+function computeAvg(values: number[]): string {
+  if (values.length === 0) return '—';
+  return (values.reduce((a, b) => a + b, 0) / values.length).toFixed(2);
+}
+
+// ─── Chart Card ───────────────────────────────────────────────────────────────
+
+function SensorChart({
+  config,
+  history,
+  activePeriod,
+}: {
+  config: ChartConfig;
+  history: HistoricalPoint[];
+  activePeriod: Period;
+}) {
+  const isLive = history.length >= 2;
+  const raw = isLive
+    ? history.slice(-MAX_POINTS[activePeriod]).map(config.extractor)
+    : config.fallback;
+
+  const data = buildGiftedData(raw, isLive);
+  const maxVal = computeMax(raw, config.fixedMax);
+  const avg = computeAvg(raw);
+
+  // Fit chart to card width when few points, scroll when many
+  const idealSpacing = raw.length > 1 ? (CHART_W - 10) / (raw.length - 1) : CHART_W;
+  const spacing = Math.max(20, Math.min(50, idealSpacing));
+
+  return (
+    <View style={styles.chartCard}>
+      <View style={styles.chartHeader}>
+        <View>
+          <Text style={styles.chartTitle}>{config.title}</Text>
+          {config.unit ? (
+            <Text style={styles.chartSub}>{config.unit} · {isLive ? `${raw.length} readings` : 'Seed data'}</Text>
+          ) : (
+            <Text style={styles.chartSub}>{isLive ? `${raw.length} readings` : 'Seed data'}</Text>
+          )}
+        </View>
+        <View style={[styles.avgBadge, { borderColor: config.color + '55', backgroundColor: config.color + '18' }]}>
+          <Text style={[styles.avgBadgeText, { color: config.color }]}>
+            Avg {avg}{config.unit ? ` ${config.unit}` : ''}
+          </Text>
+        </View>
+      </View>
+
+      <LineChart
+        data={data}
+        color={config.color}
+        thickness={2.5}
+        dataPointsRadius={raw.length <= 20 ? 4 : 0}
+        dataPointsColor={config.color}
+        hideDataPoints={raw.length > 20}
+        noOfSections={4}
+        maxValue={maxVal}
+        yAxisColor="rgba(255,255,255,0.08)"
+        xAxisColor="rgba(255,255,255,0.08)"
+        rulesColor="rgba(255,255,255,0.05)"
+        rulesType="solid"
+        yAxisTextStyle={styles.yAxisText}
+        xAxisLabelTextStyle={styles.xAxisText}
+        backgroundColor="transparent"
+        initialSpacing={10}
+        endSpacing={16}
+        spacing={spacing}
+        width={CHART_W}
+        height={110}
+        yAxisLabelWidth={36}
+        isAnimated
+        animateOnDataChange
+        scrollToEnd
+        formatYLabel={(v) => parseFloat(v).toFixed(1)}
+      />
+    </View>
   );
-
-  const doVals = sampled.map((h) => h.dissolved_oxygen);
-  const tempVals = sampled.map((h) => h.temperature);
-  const phVals = filtered.map((h) => h.ph);
-
-  const doMin = Math.min(...doVals);
-  const doMax = Math.max(...doVals);
-  const tempMin = Math.min(...tempVals);
-  const tempMax = Math.max(...tempVals);
-  const buf = (v: number) => (v < 1 ? 0.5 : v * 0.12);
-  const phAvg = (phVals.reduce((a, b) => a + b, 0) / phVals.length).toFixed(1);
-  const tempAvg = (tempVals.reduce((a, b) => a + b, 0) / tempVals.length).toFixed(1);
-
-  return {
-    rangeLabel: staticPd.rangeLabel,
-    doData: sampled.map((h, i) => ({ label: staticPd.doData[i].label, value: h.dissolved_oxygen })),
-    tempData: sampled.map((h, i) => ({ label: staticPd.tempData[i].label, value: h.temperature })),
-    doRange: [Math.max(0, doMin - buf(doMax - doMin)), doMax + buf(doMax - doMin)] as [number, number],
-    tempRange: [Math.max(0, tempMin - buf(tempMax - tempMin)), tempMax + buf(tempMax - tempMin)] as [number, number],
-    summary: [
-      { label: 'DO Min', value: doMin.toFixed(1), unit: 'mg/L', color: '#f87171' },
-      { label: 'DO Max', value: doMax.toFixed(1), unit: 'mg/L', color: '#4ade80' },
-      { label: 'Temp Avg', value: tempAvg, unit: '°C', color: '#fbbf24' },
-      { label: 'pH Avg', value: phAvg, unit: '', color: '#4a9eff' },
-    ],
-  };
 }
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function AnalysisScreen() {
-  const { historicalData, selectedSondeId } = useData();
-  const [activePeriod, setActivePeriod] = useState<Period>('7d');
+  const { historicalData, selectedSondeId, setSelectedSondeId } = useData();
+  const [activePeriod, setActivePeriod] = useState<Period>('24h');
+  const [dropdownOpen, setDropdownOpen] = useState(false);
 
-  const pd = useMemo(
-    () => buildLiveDataset(historicalData, selectedSondeId, activePeriod) ?? PERIOD_DATA[activePeriod],
-    [historicalData, selectedSondeId, activePeriod],
+  const sonde = SONDES.find((s) => s.id === selectedSondeId)!;
+
+  const sondeHistory = useMemo(
+    () => historicalData.filter((h) => h.sonde_id === selectedSondeId),
+    [historicalData, selectedSondeId],
   );
 
-  const doAvg = avg(pd.doData);
-  const tempAvg = avg(pd.tempData);
-
-  const siteLabel = selectedSondeId === 'sonde_12' ? 'Pine Lake' : 'Wetland Creek';
-
   async function handleShare() {
+    const isLive = sondeHistory.length >= 2;
+    const doVals = isLive ? sondeHistory.map((h) => h.dissolved_oxygen) : CHART_CONFIGS[0].fallback;
+    const doAvg = computeAvg(doVals);
     try {
       await Share.share({
         title: 'AquaFusion — Water Quality Report',
         message:
           `AquaFusion Water Quality Report\n` +
-          `Site: ${siteLabel}  |  Period: ${pd.rangeLabel}\n\n` +
+          `Site: ${sonde.site}\n\n` +
           `DO Avg: ${doAvg} mg/L\n` +
-          `Temp Avg: ${tempAvg} °C\n` +
-          `DO Min: ${pd.summary[0].value} mg/L\n` +
-          `DO Max: ${pd.summary[1].value} mg/L\n\n` +
+          `Data points: ${sondeHistory.length}\n\n` +
           `Generated by AquaFusion Monitoring System`,
       });
     } catch {
@@ -320,7 +235,7 @@ export default function AnalysisScreen() {
   function handleExport() {
     Alert.alert(
       'Export CSV',
-      `Preparing ${pd.rangeLabel.toLowerCase()} sensor export for ${siteLabel}.\n\nFile will be downloaded to your device.`,
+      `Preparing sensor export for ${sonde.site}.\n${sondeHistory.length} records found.\n\nFile will be downloaded to your device.`,
       [{ text: 'OK' }],
     );
   }
@@ -334,11 +249,54 @@ export default function AnalysisScreen() {
           {/* Header */}
           <View style={styles.header}>
             <Text style={styles.headerTitle}>Data Analysis</Text>
-            <View style={styles.filterIcon}>
-              <View style={styles.filterLine} />
-              <View style={[styles.filterLine, { width: 14 }]} />
-              <View style={[styles.filterLine, { width: 8 }]} />
-            </View>
+          </View>
+
+          {/* Sonde Selector */}
+          <View style={styles.selectorWrapper}>
+            <TouchableOpacity
+              style={styles.selectorBtn}
+              onPress={() => setDropdownOpen((o) => !o)}
+              activeOpacity={0.8}
+            >
+              <View style={styles.selectorDot} />
+              <Text style={styles.selectorText} numberOfLines={1}>{sonde.label}</Text>
+              <View style={styles.countBadge}>
+                <Text style={styles.countBadgeText}>{sondeHistory.length} records</Text>
+              </View>
+              <View style={[styles.chevronBox, dropdownOpen && styles.chevronBoxOpen]}>
+                <View style={styles.chevronLeft} />
+                <View style={styles.chevronRight} />
+              </View>
+            </TouchableOpacity>
+
+            {dropdownOpen && (
+              <View style={styles.dropdownPanel}>
+                {SONDES.map((s, i) => {
+                  const isActive = s.id === selectedSondeId;
+                  return (
+                    <TouchableOpacity
+                      key={s.id}
+                      style={[
+                        styles.dropdownOption,
+                        isActive && styles.dropdownOptionActive,
+                        i < SONDES.length - 1 && styles.dropdownOptionBorder,
+                      ]}
+                      onPress={() => { setSelectedSondeId(s.id); setDropdownOpen(false); }}
+                      activeOpacity={0.75}
+                    >
+                      <View style={[styles.dropdownDot, isActive && styles.dropdownDotActive]} />
+                      <View style={styles.dropdownOptionInner}>
+                        <Text style={[styles.dropdownOptionText, isActive && styles.dropdownOptionTextActive]}>
+                          {s.label}
+                        </Text>
+                        <Text style={styles.dropdownSite}>{s.site}</Text>
+                      </View>
+                      {isActive && <View style={styles.checkDot} />}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
           </View>
 
           {/* Period selector */}
@@ -357,47 +315,15 @@ export default function AnalysisScreen() {
             ))}
           </View>
 
-          {/* DO chart */}
-          <View style={styles.card}>
-            <View style={styles.chartHeader}>
-              <View>
-                <Text style={styles.chartTitle}>Dissolved Oxygen Levels</Text>
-                <Text style={styles.chartSub}>mg/L · {pd.rangeLabel}</Text>
-              </View>
-              <View style={styles.avgBadge}>
-                <Text style={styles.avgBadgeText}>Avg {doAvg}</Text>
-              </View>
-            </View>
-            <LineChart data={pd.doData} color="#4a9eff" yMin={pd.doRange[0]} yMax={pd.doRange[1]} />
-          </View>
-
-          {/* Temperature chart */}
-          <View style={styles.card}>
-            <View style={styles.chartHeader}>
-              <View>
-                <Text style={styles.chartTitle}>Water Temperature</Text>
-                <Text style={styles.chartSub}>°C · {pd.rangeLabel}</Text>
-              </View>
-              <View style={[styles.avgBadge, styles.avgBadgeAmber]}>
-                <Text style={[styles.avgBadgeText, { color: '#fbbf24' }]}>Avg {tempAvg}</Text>
-              </View>
-            </View>
-            <LineChart data={pd.tempData} color="#fbbf24" yMin={pd.tempRange[0]} yMax={pd.tempRange[1]} />
-          </View>
-
-          {/* Summary stats */}
-          <View style={styles.card}>
-            <Text style={styles.sectionLabel}>{pd.rangeLabel} Summary</Text>
-            <View style={styles.statsRow}>
-              {pd.summary.map((s) => (
-                <View key={s.label} style={styles.statItem}>
-                  <Text style={[styles.statValue, { color: s.color }]}>{s.value}</Text>
-                  <Text style={styles.statUnit}>{s.unit}</Text>
-                  <Text style={styles.statLabel}>{s.label}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
+          {/* 5 Sensor Charts */}
+          {CHART_CONFIGS.map((cfg) => (
+            <SensorChart
+              key={cfg.title}
+              config={cfg}
+              history={sondeHistory}
+              activePeriod={activePeriod}
+            />
+          ))}
 
           {/* Export / Share */}
           <View style={styles.actionRow}>
@@ -430,78 +356,98 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1 },
   content: { paddingHorizontal: 16, paddingTop: 6, paddingBottom: 28 },
 
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
+  header: { marginBottom: 10 },
   headerTitle: { fontSize: 20, fontWeight: '700', color: '#ffffff' },
-  filterIcon: { gap: 4, alignItems: 'flex-end' },
-  filterLine: { height: 2, width: 20, backgroundColor: 'rgba(255,255,255,0.5)', borderRadius: 1 },
+
+  selectorWrapper: { marginBottom: 14 },
+  selectorBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 14, paddingHorizontal: 14, paddingVertical: 11,
+  },
+  selectorDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#4a9eff', flexShrink: 0 },
+  selectorText: { flex: 1, fontSize: 14, fontWeight: '600', color: '#ffffff' },
+  chevronBox: {
+    width: 16, height: 10, flexDirection: 'row',
+    alignItems: 'flex-start', justifyContent: 'center',
+  },
+  chevronBoxOpen: { transform: [{ scaleY: -1 }] },
+  chevronLeft: {
+    width: 8, height: 2, backgroundColor: 'rgba(255,255,255,0.55)',
+    borderRadius: 1, transform: [{ rotate: '40deg' }, { translateY: 3 }],
+  },
+  chevronRight: {
+    width: 8, height: 2, backgroundColor: 'rgba(255,255,255,0.55)',
+    borderRadius: 1, transform: [{ rotate: '-40deg' }, { translateY: 3 }],
+  },
+  dropdownPanel: {
+    marginTop: 4, backgroundColor: 'rgba(0,20,55,0.97)',
+    borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)',
+    overflow: 'hidden',
+  },
+  dropdownOption: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 14, paddingVertical: 13, gap: 12,
+  },
+  dropdownOptionActive: { backgroundColor: 'rgba(74,158,255,0.12)' },
+  dropdownOptionBorder: { borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)' },
+  dropdownDot: {
+    width: 8, height: 8, borderRadius: 4,
+    backgroundColor: 'rgba(255,255,255,0.25)', flexShrink: 0,
+  },
+  dropdownDotActive: { backgroundColor: '#4a9eff' },
+  dropdownOptionInner: { flex: 1 },
+  dropdownOptionText: { fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.65)' },
+  dropdownOptionTextActive: { color: '#ffffff' },
+  dropdownSite: { fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 },
+  checkDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#4a9eff' },
+
+  countBadge: {
+    backgroundColor: 'rgba(74,158,255,0.15)',
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20,
+  },
+  countBadgeText: { color: '#4a9eff', fontSize: 11, fontWeight: '700' },
 
   periodRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
   periodBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 20,
+    paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20,
     backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
   },
   periodBtnActive: { backgroundColor: 'rgba(74,158,255,0.25)', borderColor: '#4a9eff' },
   periodText: { fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.5)' },
   periodTextActive: { color: '#ffffff' },
 
-  card: {
+  chartCard: {
     backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    padding: 16,
-    marginBottom: 12,
+    borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
+    padding: 16, marginBottom: 12, overflow: 'hidden',
   },
   chartHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 16,
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'flex-start', marginBottom: 14,
   },
   chartTitle: { fontSize: 15, fontWeight: '700', color: '#ffffff' },
   chartSub: { fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 2 },
   avgBadge: {
-    backgroundColor: 'rgba(74,158,255,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(74,158,255,0.25)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 20,
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, borderWidth: 1,
   },
-  avgBadgeAmber: {
-    backgroundColor: 'rgba(251,191,36,0.12)',
-    borderColor: 'rgba(251,191,36,0.25)',
-  },
-  avgBadgeText: { fontSize: 12, fontWeight: '700', color: '#4a9eff' },
+  avgBadgeText: { fontSize: 11, fontWeight: '700' },
 
-  sectionLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: 'rgba(255,255,255,0.45)',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: 14,
-  },
-  statsRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  statItem: { alignItems: 'center' },
-  statValue: { fontSize: 20, fontWeight: '800' },
-  statUnit: { fontSize: 10, color: 'rgba(255,255,255,0.45)', marginTop: 1 },
-  statLabel: { fontSize: 10, color: 'rgba(255,255,255,0.4)', marginTop: 2 },
+  yAxisText: {
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 9,
+  } as any,
+  xAxisText: {
+    color: 'rgba(255,255,255,0.35)',
+    fontSize: 9,
+  } as any,
 
-  actionRow: { flexDirection: 'row', gap: 12 },
+  actionRow: { flexDirection: 'row', gap: 12, marginTop: 4 },
   actionBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
   actionBtnOutline: {
-    borderWidth: 1,
-    borderColor: 'rgba(74,158,255,0.4)',
+    borderWidth: 1, borderColor: 'rgba(74,158,255,0.4)',
     backgroundColor: 'rgba(74,158,255,0.06)',
   },
   actionBtnFill: { backgroundColor: '#4a9eff' },
