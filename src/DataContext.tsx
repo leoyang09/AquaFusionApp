@@ -1,5 +1,19 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { Platform } from 'react-native';
+import * as Notifications from 'expo-notifications';
+import * as Device from 'expo-device';
 import { supabase } from './supabase';
+
+// Show foreground notifications as a native dropdown banner
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
 
@@ -76,6 +90,7 @@ export type RegisteredDevice = {
   firmware?: string;
   latitude?: number;
   longitude?: number;
+  push_token?: string;
   created_at?: string;
 };
 
@@ -214,6 +229,50 @@ export function formatRelativeTime(tsMs: number, now: number = Date.now()): stri
   return `${Math.floor(diffH / 24)}d ago`;
 }
 
+// ─── Push notification registration ──────────────────────────────────────────
+
+async function registerForPushNotificationsAsync(sondeId: string): Promise<void> {
+  if (!Device.isDevice) {
+    if (__DEV__) console.warn('[AquaFusion] Push tokens require a physical device.');
+    return;
+  }
+
+  // Android needs an explicit notification channel before requesting permissions
+  if (Platform.OS === 'android') {
+    await Notifications.setNotificationChannelAsync('default', {
+      name: 'AquaFusion Alerts',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 250, 250, 250],
+    });
+  }
+
+  const { status: existingStatus } = await Notifications.getPermissionsAsync();
+  let finalStatus = existingStatus;
+
+  if (existingStatus !== 'granted') {
+    const { status } = await Notifications.requestPermissionsAsync();
+    finalStatus = status;
+  }
+
+  if (finalStatus !== 'granted') {
+    if (__DEV__) console.warn('[AquaFusion] Notification permission not granted.');
+    return;
+  }
+
+  const { data: token } = await Notifications.getExpoPushTokenAsync({
+    projectId: 'ad64e762-54f7-4b7c-8537-4035aa8d9e23',
+  });
+
+  const { error } = await supabase
+    .from('registered_devices')
+    .update({ push_token: token })
+    .eq('sonde_id', sondeId);
+
+  if (error && __DEV__) {
+    console.warn('[AquaFusion] push_token save failed:', error.message);
+  }
+}
+
 // ─── Context ──────────────────────────────────────────────────────────────────
 
 export const DataContext = createContext<DataContextValue>({
@@ -265,6 +324,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const timer = setInterval(() => setTimeTick((t) => t + 1), 60_000);
     return () => clearInterval(timer);
+  }, []);
+
+  // Register this phone's Expo push token and bind it to the active device profile
+  useEffect(() => {
+    registerForPushNotificationsAsync(selectedSondeId);
   }, []);
 
   useEffect(() => {

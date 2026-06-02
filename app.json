@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "AquaFusionApp",
-    "slug": "AquaFusionApp",
+    "slug": "aquafusionapp",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -27,6 +27,15 @@
     "plugins": [
       "expo-router",
       [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#001C44",
+          "defaultChannel": "default",
+          "sounds": []
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",
@@ -37,6 +46,13 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "ad64e762-54f7-4b7c-8537-4035aa8d9e23"
+      }
+    },
+    "owner": "leoyang09"
   }
 }
