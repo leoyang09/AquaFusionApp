@@ -4,7 +4,7 @@ import {
   View,
   Text,
   TouchableOpacity,
-  Dimensions,
+  useWindowDimensions,
   Alert,
   Share,
 } from 'react-native';
@@ -15,9 +15,6 @@ import { useState, useMemo } from 'react';
 import { LineChart } from 'react-native-gifted-charts';
 import { useData } from '@/src/DataContext';
 import type { HistoricalPoint } from '@/src/DataContext';
-
-const SCREEN_W = Dimensions.get('window').width;
-const CHART_W = SCREEN_W - 64;
 
 // ─── Sonde display helpers ────────────────────────────────────────────────────
 
@@ -133,10 +130,12 @@ function SensorChart({
   config,
   history,
   activePeriod,
+  chartWidth,
 }: {
   config: ChartConfig;
   history: HistoricalPoint[];
   activePeriod: Period;
+  chartWidth: number;
 }) {
   const isLive = history.length >= 2;
   const raw = isLive
@@ -148,7 +147,7 @@ function SensorChart({
   const avg = computeAvg(raw);
 
   // Fit chart to card width when few points, scroll when many
-  const idealSpacing = raw.length > 1 ? (CHART_W - 10) / (raw.length - 1) : CHART_W;
+  const idealSpacing = raw.length > 1 ? (chartWidth - 10) / (raw.length - 1) : chartWidth;
   const spacing = Math.max(20, Math.min(50, idealSpacing));
 
   return (
@@ -188,7 +187,7 @@ function SensorChart({
         initialSpacing={10}
         endSpacing={16}
         spacing={spacing}
-        width={CHART_W}
+        width={chartWidth}
         height={110}
         yAxisLabelWidth={36}
         isAnimated
@@ -206,6 +205,8 @@ export default function AnalysisScreen() {
   const { historicalData, selectedSondeId, setSelectedSondeId, devicesList } = useData();
   const [activePeriod, setActivePeriod] = useState<Period>('24h');
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const { width } = useWindowDimensions();
+  const chartWidth = width - 64;
 
   const sondes = devicesList.map((r) => ({
     id: r.sonde_id,
@@ -217,7 +218,7 @@ export default function AnalysisScreen() {
     id: selectedSondeId,
     label: sondeIdToName(selectedSondeId),
     site: sondeIdToName(selectedSondeId),
-  };;
+  };
 
   const sondeHistory = useMemo(
     () => historicalData.filter((h) => h.sonde_id === selectedSondeId),
@@ -343,6 +344,7 @@ export default function AnalysisScreen() {
               config={cfg}
               history={sondeHistory}
               activePeriod={activePeriod}
+              chartWidth={chartWidth}
             />
           ))}
 

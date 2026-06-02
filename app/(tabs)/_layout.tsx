@@ -1,6 +1,22 @@
 import { Tabs } from 'expo-router';
+import { Platform } from 'react-native';
 import { SymbolView } from 'expo-symbols';
+import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
+
+// SF Symbols on iOS, Ionicons everywhere else (web, Android)
+function TabIcon({ sfSymbol, ionicon, color }: {
+  sfSymbol: string;
+  ionicon: IoniconName;
+  color: string;
+}) {
+  if (Platform.OS === 'ios') {
+    return <SymbolView name={sfSymbol} tintColor={color} size={20} />;
+  }
+  return <Ionicons name={ionicon} size={20} color={color} />;
+}
 
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
@@ -13,8 +29,8 @@ export default function TabLayout() {
           backgroundColor: '#001430',
           borderTopWidth: 1,
           borderTopColor: 'rgba(255,255,255,0.1)',
-          // Clears the iPhone home indicator; minimum 16 pt on older devices.
-          paddingBottom: Math.max(insets.bottom, 16),
+          // No extra home-indicator padding on web; respect insets on device
+          paddingBottom: Platform.OS === 'web' ? 6 : Math.max(insets.bottom, 16),
           paddingTop: 6,
         },
         tabBarLabelStyle: { fontSize: 10, fontWeight: '600' },
@@ -28,7 +44,7 @@ export default function TabLayout() {
         options={{
           title: 'Dashboard',
           tabBarIcon: ({ color }) => (
-            <SymbolView name="square.grid.2x2.fill" tintColor={color} size={20} />
+            <TabIcon sfSymbol="square.grid.2x2.fill" ionicon="grid-outline" color={color} />
           ),
         }}
       />
@@ -37,7 +53,7 @@ export default function TabLayout() {
         options={{
           title: 'Map',
           tabBarIcon: ({ color }) => (
-            <SymbolView name="map.fill" tintColor={color} size={20} />
+            <TabIcon sfSymbol="map.fill" ionicon="map-outline" color={color} />
           ),
         }}
       />
@@ -46,7 +62,7 @@ export default function TabLayout() {
         options={{
           title: 'AI Insights',
           tabBarIcon: ({ color }) => (
-            <SymbolView name="sparkles" tintColor={color} size={20} />
+            <TabIcon sfSymbol="sparkles" ionicon="sparkles-outline" color={color} />
           ),
         }}
       />
@@ -55,7 +71,7 @@ export default function TabLayout() {
         options={{
           title: 'Analysis',
           tabBarIcon: ({ color }) => (
-            <SymbolView name="chart.xyaxis.line" tintColor={color} size={20} />
+            <TabIcon sfSymbol="chart.xyaxis.line" ionicon="bar-chart-outline" color={color} />
           ),
         }}
       />
@@ -64,7 +80,7 @@ export default function TabLayout() {
         options={{
           title: 'Devices',
           tabBarIcon: ({ color }) => (
-            <SymbolView name="cpu" tintColor={color} size={20} />
+            <TabIcon sfSymbol="cpu" ionicon="hardware-chip-outline" color={color} />
           ),
         }}
       />

@@ -1,4 +1,4 @@
-import { StyleSheet, ScrollView, View, Text, TouchableOpacity } from 'react-native';
+import { StyleSheet, ScrollView, View, Text, TouchableOpacity, useWindowDimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -141,6 +141,8 @@ export default function DashboardScreen() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [isResetConfirming, setIsResetConfirming] = useState(false);
   const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { width } = useWindowDimensions();
+  const isDesktop = width >= 1024;
 
   // Cancel pending confirm timer and snap back whenever the selected sonde changes
   useEffect(() => {
@@ -204,6 +206,7 @@ export default function DashboardScreen() {
       <StatusBar style="light" />
       <SafeAreaView style={styles.safeArea}>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <View style={isDesktop ? styles.desktopInner : undefined}>
 
           {/* ── Header ── */}
           <View style={styles.header}>
@@ -305,21 +308,31 @@ export default function DashboardScreen() {
                 This device will appear live once the sonde sends its first sensor packet.
               </Text>
             </View>
+          ) : isDesktop ? (
+            <>
+              {/* Desktop: 3-col row 1, 2-col row 2 */}
+              <View style={styles.row}>
+                <MetricCard label="Temperature" value={currentMetrics.temperature} status={tempSt} />
+                <MetricCard label="Dissolved O₂" value={currentMetrics.dissolvedOxygen} status={doSt} />
+                <MetricCard label="pH Level" value={currentMetrics.pH} status={phSt} />
+              </View>
+              <View style={styles.row}>
+                <MetricCard label="Turbidity" value={currentMetrics.turbidity} status={turbSt} />
+                <MetricCard label="Water Depth" value={currentMetrics.depth} status={depthSt} />
+              </View>
+              <Text style={[styles.updateText, { marginBottom: 12 }]}>Updated {currentMetrics.lastUpdate}</Text>
+            </>
           ) : (
             <>
-              {/* Row 1: Temperature + DO */}
+              {/* Mobile: 2+2+full-width depth */}
               <View style={styles.row}>
                 <MetricCard label="Temperature" value={currentMetrics.temperature} status={tempSt} />
                 <MetricCard label="Dissolved O₂" value={currentMetrics.dissolvedOxygen} status={doSt} />
               </View>
-
-              {/* Row 2: pH + Turbidity */}
               <View style={styles.row}>
                 <MetricCard label="pH Level" value={currentMetrics.pH} status={phSt} />
                 <MetricCard label="Turbidity" value={currentMetrics.turbidity} status={turbSt} />
               </View>
-
-              {/* Row 3: Depth — full width */}
               <View style={styles.card}>
                 <View style={[styles.metricCardTop, { justifyContent: 'space-between' }]}>
                   <Text style={styles.metricCardLabel}>Water Depth</Text>
@@ -382,6 +395,7 @@ export default function DashboardScreen() {
             );
           })()}
 
+          </View>
         </ScrollView>
       </SafeAreaView>
     </LinearGradient>
@@ -570,5 +584,10 @@ const styles = StyleSheet.create({
   waitingHint: {
     fontSize: 11, color: 'rgba(255,255,255,0.35)',
     textAlign: 'center', lineHeight: 16,
+  },
+  desktopInner: {
+    maxWidth: 1100,
+    alignSelf: 'center',
+    width: '100%',
   },
 });
