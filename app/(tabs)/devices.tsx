@@ -1,9 +1,15 @@
-import { StyleSheet, ScrollView, View, Text, TouchableOpacity } from 'react-native';
+import {
+  StyleSheet, ScrollView, View, Text, TouchableOpacity,
+  Modal, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator,
+} from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import { useState } from 'react';
+import * as Location from 'expo-location';
 import { useData } from '@/src/DataContext';
-import type { SondeId } from '@/src/DataContext';
+import type { RegisteredDevice } from '@/src/DataContext';
+import { supabase } from '@/src/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -11,66 +17,49 @@ type DeviceStatus = 'active' | 'warning' | 'offline';
 
 type Device = {
   id: string;
-  sondeId?: SondeId;       // present for tracked sondes
+  sondeId?: string;
   name: string;
   site: string;
   status: DeviceStatus;
   battery: number;
   signal: 'Strong' | 'Moderate' | 'Weak' | 'None';
-  staticLastSeen: string;  // fallback when no live data
+  staticLastSeen: string;
   firmware: string;
 };
 
-// ─── Static device registry ───────────────────────────────────────────────────
-
-const DEVICES: Device[] = [
-  {
-    id: 'd1',
-    sondeId: 'sonde_12',
-    name: 'Sonde #12',
-    site: 'Pine Lake',
-    status: 'active',
-    battery: 82,
-    signal: 'Strong',
-    staticLastSeen: 'Awaiting data…',
-    firmware: 'v3.1.4',
-  },
-  {
-    id: 'd2',
-    sondeId: 'sonde_45',
-    name: 'Sonde #45',
-    site: 'Wetland Creek',
-    status: 'warning',
-    battery: 23,
-    signal: 'Moderate',
-    staticLastSeen: 'Awaiting data…',
-    firmware: 'v3.0.9',
-  },
-  {
-    id: 'd3',
-    name: 'Sonde #07',
-    site: 'North Inlet',
-    status: 'offline',
-    battery: 0,
-    signal: 'None',
-    staticLastSeen: '3 hrs ago',
-    firmware: 'v2.9.2',
-  },
-];
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function formatLastSeen(tsMs?: number): string {
-  if (!tsMs) return '';
-  const diffMs = Date.now() - tsMs;
+function sondeIdToName(id: string): string {
+  const m = id.match(/^sonde_(\w+)$/i);
+  if (m) return `Sonde #${m[1]}`;
+  return id.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+
+function registeredToDevice(r: RegisteredDevice): Device {
+  const bat = r.battery_level ?? 100;
+  return {
+    id: r.sonde_id,
+    sondeId: r.sonde_id,
+    name: sondeIdToName(r.sonde_id),
+    site: r.location_name,
+    status: bat === 0 ? 'offline' : bat < 30 ? 'warning' : 'active',
+    battery: bat,
+    signal: (r.signal ?? 'Strong') as Device['signal'],
+    staticLastSeen: 'Awaiting data…',
+    firmware: r.firmware ?? 'v3.0.0',
+  };
+}
+
+function formatLastSeen(tsMs: number, now: number): string {
+  const diffMs = now - tsMs;
   const diffSec = Math.floor(diffMs / 1000);
   if (diffSec < 60) return 'just now';
   const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin} min ago`;
+  if (diffMin < 60) return `${diffMin} min${diffMin !== 1 ? 's' : ''} ago`;
   const diffH = Math.floor(diffMin / 60);
-  if (diffH < 24) return `${diffH} hr${diffH > 1 ? 's' : ''} ago`;
+  if (diffH < 24) return `${diffH} hr${diffH !== 1 ? 's' : ''} ago`;
   const diffD = Math.floor(diffH / 24);
-  return `${diffD} day${diffD > 1 ? 's' : ''} ago`;
+  return `${diffD} day${diffD !== 1 ? 's' : ''} ago`;
 }
 
 const STATUS_CONFIG: Record<DeviceStatus, { label: string; color: string; bg: string; border: string }> = {
@@ -113,19 +102,72 @@ function SignalStrength({ signal }: { signal: Device['signal'] }) {
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function DevicesScreen() {
-  const { lastSeenPerSonde } = useData();
+  const { lastSeenPerSonde, timeTick: _timeTick, devicesList, addDevice } = useData();
+  const devices = devicesList.map(registeredToDevice);
 
-  function liveStatus(device: Device): DeviceStatus {
-    if (device.battery === 0) return 'offline';
-    if (device.battery <= 20) return 'warning';
-    return 'active';
-  }
+  const [modalVisible, setModalVisible] = useState(false);
+  const [formSondeId, setFormSondeId] = useState('');
+  const [formSite, setFormSite] = useState('');
+  const [formSubmitting, setFormSubmitting] = useState(false);
+  const [formError, setFormError] = useState('');
 
   const counts = {
-    active:  DEVICES.filter((d) => liveStatus(d) === 'active').length,
-    warning: DEVICES.filter((d) => liveStatus(d) === 'warning').length,
-    offline: DEVICES.filter((d) => liveStatus(d) === 'offline').length,
+    active:  devices.filter((d) => d.status === 'active').length,
+    warning: devices.filter((d) => d.status === 'warning').length,
+    offline: devices.filter((d) => d.status === 'offline').length,
   };
+
+  function handleClose() {
+    if (formSubmitting) return;
+    setFormSondeId('');
+    setFormSite('');
+    setFormError('');
+    setModalVisible(false);
+  }
+
+  async function handleSubmit() {
+    const sid = formSondeId.trim().toLowerCase().replace(/\s+/g, '_');
+    const site = formSite.trim();
+
+    if (!sid) { setFormError('Sonde ID is required.'); return; }
+    if (!site) { setFormError('Deployment location is required.'); return; }
+
+    setFormError('');
+    setFormSubmitting(true);
+
+    // Geocode the location string; fall back to area offsets if unresolvable
+    let latitude = 47.6;
+    let longitude = -122.3;
+    try {
+      const results = await Location.geocodeAsync(site);
+      if (results.length > 0) {
+        latitude = results[0].latitude;
+        longitude = results[0].longitude;
+      }
+    } catch {
+      // silently use fallback coordinates
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('registered_devices')
+        .insert([{ sonde_id: sid, location_name: site, latitude, longitude }])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Append to context state immediately — realtime deduplication handles any subsequent event
+      addDevice(data as RegisteredDevice);
+      setFormSondeId('');
+      setFormSite('');
+      setModalVisible(false);
+    } catch (err: any) {
+      setFormError(err?.message ?? 'Insert failed. Please try again.');
+    } finally {
+      setFormSubmitting(false);
+    }
+  }
 
   return (
     <LinearGradient colors={['#001C44', '#003B80']} style={styles.gradient}>
@@ -137,7 +179,7 @@ export default function DevicesScreen() {
           <View style={styles.header}>
             <Text style={styles.headerTitle}>Devices</Text>
             <View style={styles.countBadge}>
-              <Text style={styles.countBadgeText}>{DEVICES.length} Total</Text>
+              <Text style={styles.countBadgeText}>{devices.length} Total</Text>
             </View>
           </View>
 
@@ -155,19 +197,18 @@ export default function DevicesScreen() {
           </View>
 
           {/* Device Cards */}
-          {DEVICES.map((device) => {
-            const status = liveStatus(device);
+          {devices.map((device) => {
+            const status = device.status;
             const cfg = STATUS_CONFIG[status];
 
-            // Resolve Last Seen: prefer live timestamp, fall back to staticLastSeen
             const liveTs = device.sondeId ? lastSeenPerSonde[device.sondeId] : undefined;
-            const lastSeen = liveTs
-              ? formatLastSeen(liveTs)
+            const lastSeen = liveTs != null
+              ? formatLastSeen(liveTs, Date.now())
               : device.staticLastSeen;
+            const battTextColor = status !== 'active' ? cfg.color : 'rgba(255,255,255,0.75)';
 
             return (
               <TouchableOpacity key={device.id} activeOpacity={0.85} style={styles.deviceCard}>
-                {/* Card Top Row */}
                 <View style={styles.deviceTop}>
                   <View style={styles.deviceIconBox}>
                     <View style={styles.deviceIconInner} />
@@ -185,13 +226,12 @@ export default function DevicesScreen() {
 
                 <View style={styles.divider} />
 
-                {/* Battery + Signal + Last Seen */}
                 <View style={styles.deviceStats}>
                   <View style={styles.statBlock}>
                     <Text style={styles.statLabel}>Battery</Text>
                     <View style={styles.battRow}>
                       <BatteryBar level={device.battery} status={status} />
-                      <Text style={styles.battPercent}>{device.battery}%</Text>
+                      <Text style={[styles.battPercent, { color: battTextColor }]}>{device.battery}%</Text>
                     </View>
                   </View>
                   <View style={styles.statBlock}>
@@ -209,14 +249,25 @@ export default function DevicesScreen() {
                   </View>
                 </View>
 
-                {/* Firmware */}
                 <Text style={styles.firmwareText}>FW {device.firmware}</Text>
               </TouchableOpacity>
             );
           })}
 
+          {/* Empty state */}
+          {devices.length === 0 && (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyTitle}>No devices registered yet.</Text>
+              <Text style={styles.emptySubtitle}>Tap below to add your first sonde.</Text>
+            </View>
+          )}
+
           {/* Add Device Button */}
-          <TouchableOpacity style={styles.addBtn} activeOpacity={0.8}>
+          <TouchableOpacity
+            style={styles.addBtn}
+            activeOpacity={0.8}
+            onPress={() => setModalVisible(true)}
+          >
             <View style={styles.addBtnIcon}>
               <View style={styles.plusH} />
               <View style={styles.plusV} />
@@ -226,6 +277,80 @@ export default function DevicesScreen() {
 
         </ScrollView>
       </SafeAreaView>
+
+      {/* ── Add Device Modal ── */}
+      <Modal
+        visible={modalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={handleClose}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalKAV}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          {/* Tap outside to dismiss */}
+          <TouchableOpacity style={styles.modalDismiss} activeOpacity={1} onPress={handleClose} />
+
+          <View style={styles.modalSheet}>
+            <View style={styles.sheetHandle} />
+
+            <Text style={styles.sheetTitle}>Register New Device</Text>
+            <Text style={styles.sheetSubtitle}>Device will appear as Active immediately on submission.</Text>
+
+            <Text style={styles.inputLabel}>Device ID / Sonde ID</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g. sonde_07"
+              placeholderTextColor="rgba(255,255,255,0.25)"
+              value={formSondeId}
+              onChangeText={setFormSondeId}
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!formSubmitting}
+            />
+
+            <Text style={styles.inputLabel}>Deployment Location Name</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g. North Inlet"
+              placeholderTextColor="rgba(255,255,255,0.25)"
+              value={formSite}
+              onChangeText={setFormSite}
+              autoCorrect={false}
+              editable={!formSubmitting}
+            />
+
+            {formError ? (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorText}>{formError}</Text>
+              </View>
+            ) : null}
+
+            <View style={styles.sheetActions}>
+              <TouchableOpacity
+                style={styles.cancelBtn}
+                onPress={handleClose}
+                activeOpacity={0.75}
+                disabled={formSubmitting}
+              >
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.submitBtn, formSubmitting && styles.submitBtnBusy]}
+                onPress={handleSubmit}
+                activeOpacity={0.8}
+                disabled={formSubmitting}
+              >
+                {formSubmitting
+                  ? <ActivityIndicator size="small" color="#ffffff" />
+                  : <Text style={styles.submitBtnText}>Add Device</Text>
+                }
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </LinearGradient>
   );
 }
@@ -315,6 +440,10 @@ const styles = StyleSheet.create({
 
   firmwareText: { fontSize: 10, color: 'rgba(255,255,255,0.25)', textAlign: 'right' },
 
+  emptyState: { alignItems: 'center', paddingVertical: 36 },
+  emptyTitle: { color: 'rgba(255,255,255,0.5)', fontSize: 15, fontWeight: '600' },
+  emptySubtitle: { color: 'rgba(255,255,255,0.3)', fontSize: 13, marginTop: 4 },
+
   addBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
     borderWidth: 1.5, borderColor: 'rgba(74,158,255,0.4)', borderStyle: 'dashed',
@@ -325,4 +454,58 @@ const styles = StyleSheet.create({
   plusH: { position: 'absolute', width: 14, height: 2, backgroundColor: '#4a9eff', borderRadius: 1 },
   plusV: { position: 'absolute', width: 2, height: 14, backgroundColor: '#4a9eff', borderRadius: 1 },
   addBtnText: { color: '#4a9eff', fontSize: 15, fontWeight: '700' },
+
+  // ── Modal ──
+  modalKAV: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  modalDismiss: { flex: 1 },
+  modalSheet: {
+    backgroundColor: '#001233',
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1,
+    borderColor: 'rgba(74,158,255,0.2)',
+    paddingHorizontal: 24, paddingTop: 12, paddingBottom: 40,
+  },
+  sheetHandle: {
+    width: 36, height: 4, borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    alignSelf: 'center', marginBottom: 20,
+  },
+  sheetTitle: { fontSize: 18, fontWeight: '700', color: '#ffffff', marginBottom: 4 },
+  sheetSubtitle: { fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 24 },
+
+  inputLabel: {
+    fontSize: 11, fontWeight: '600', color: 'rgba(255,255,255,0.5)',
+    textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8,
+  },
+  input: {
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
+    color: '#ffffff', fontSize: 15, marginBottom: 16,
+  },
+  errorBox: {
+    backgroundColor: 'rgba(248,113,113,0.1)',
+    borderWidth: 1, borderColor: 'rgba(248,113,113,0.25)',
+    borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, marginBottom: 12,
+  },
+  errorText: { color: '#f87171', fontSize: 13 },
+
+  sheetActions: { flexDirection: 'row', gap: 12, marginTop: 4 },
+  cancelBtn: {
+    flex: 1, paddingVertical: 14, borderRadius: 12,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+  },
+  cancelBtnText: { color: 'rgba(255,255,255,0.55)', fontSize: 15, fontWeight: '600' },
+  submitBtn: {
+    flex: 2, paddingVertical: 14, borderRadius: 12,
+    backgroundColor: '#1a5fb4',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  submitBtnBusy: { opacity: 0.6 },
+  submitBtnText: { color: '#ffffff', fontSize: 15, fontWeight: '700' },
 });

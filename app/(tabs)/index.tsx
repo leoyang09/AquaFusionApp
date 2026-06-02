@@ -2,21 +2,19 @@ import { StyleSheet, ScrollView, View, Text, TouchableOpacity } from 'react-nati
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
-import { useData } from '@/src/DataContext';
+import { useState, useEffect, useRef } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { useData, EMPTY_METRICS } from '@/src/DataContext';
 import type { SondeId, MetricsState } from '@/src/DataContext';
 
 // ─── Sonde display config ────────────────────────────────────────────────────
 
-type SondeConfig = { id: SondeId; label: string; site: string; device: string };
+type SondeConfig = { id: string; label: string; site: string; device: string };
 
-const SONDES: SondeConfig[] = [
-  { id: 'sonde_12', label: 'Pine Lake (Sonde #12)', site: 'Pine Lake', device: 'Sonde #12' },
-  { id: 'sonde_45', label: 'Wetland Creek (Sonde #45)', site: 'Wetland Creek', device: 'Sonde #45' },
-];
-
-function getSonde(id: SondeId): SondeConfig {
-  return SONDES.find((s) => s.id === id)!;
+function sondeIdToName(id: string): string {
+  const m = id.match(/^sonde_(\w+)$/i);
+  if (m) return `Sonde #${m[1]}`;
+  return id.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
 // ─── Per-sensor threshold evaluation ─────────────────────────────────────────
@@ -55,15 +53,23 @@ function depthStatus(v: number): SensorStatus {
 
 // ─── Diagnostic banner ───────────────────────────────────────────────────────
 
-type DiagStyle = 'alert' | 'warn' | 'info';
+type DiagStyle = 'alert' | 'info';
 
 const DIAG_THEMES: Record<DiagStyle, { bannerBg: string; bannerBorder: string; iconBg: string; textColor: string }> = {
-  alert: { bannerBg: 'rgba(248,113,113,0.12)', bannerBorder: 'rgba(248,113,113,0.35)', iconBg: 'rgba(248,113,113,0.3)',  textColor: '#f87171' },
-  warn:  { bannerBg: 'rgba(251,191,36,0.1)',   bannerBorder: 'rgba(251,191,36,0.28)',   iconBg: 'rgba(251,191,36,0.25)', textColor: '#fbbf24' },
-  info:  { bannerBg: 'rgba(74,158,255,0.1)',   bannerBorder: 'rgba(74,158,255,0.25)',   iconBg: 'rgba(74,158,255,0.2)',  textColor: '#4a9eff' },
+  alert: { bannerBg: 'rgba(248,113,113,0.12)', bannerBorder: 'rgba(248,113,113,0.35)', iconBg: 'rgba(248,113,113,0.3)', textColor: '#f87171' },
+  info:  { bannerBg: 'rgba(74,158,255,0.1)',   bannerBorder: 'rgba(74,158,255,0.25)',  iconBg: 'rgba(74,158,255,0.2)', textColor: '#4a9eff' },
 };
 
-function getDiagnosticInfo(m: MetricsState, isAnomaly: boolean, device: string): { text: string; style: DiagStyle } {
+const SOURCE_DISPLAY_NAMES: Record<string, string> = {
+  dissolved_oxygen: 'Dissolved Oxygen',
+  temperature:      'Temperature',
+  ph:               'pH Level',
+  turbidity:        'Turbidity',
+  water_depth:      'Water Depth',
+};
+
+function resolveSourceName(source: string, m: MetricsState): string {
+  if (source && SOURCE_DISPLAY_NAMES[source]) return SOURCE_DISPLAY_NAMES[source];
   const scores = [
     { name: 'Dissolved Oxygen', score: m.rawDO < 5 ? 2 : m.rawDO < 7 ? 1 : 0 },
     { name: 'Turbidity',        score: m.rawTurbidity > 25 ? 2 : m.rawTurbidity > 10 ? 1 : 0 },
@@ -71,12 +77,33 @@ function getDiagnosticInfo(m: MetricsState, isAnomaly: boolean, device: string):
     { name: 'pH',               score: (m.rawPH < 5.5 || m.rawPH > 9.5) ? 2 : (m.rawPH < 6.5 || m.rawPH > 8.5) ? 1 : 0 },
     { name: 'Water Depth',      score: (m.rawDepth < 0.2 || m.rawDepth > 5.0) ? 2 : (m.rawDepth < 0.5 || m.rawDepth > 3.0) ? 1 : 0 },
   ];
-  const worst = scores.reduce((a, b) => (b.score >= a.score ? b : a));
-  if (isAnomaly) {
-    const prefix = worst.score === 2 ? 'Critical' : 'Abnormal';
-    return { text: `${prefix} ${worst.name} reading on ${device} — autoencoder flag triggered.`, style: worst.score === 2 ? 'alert' : 'warn' };
+  return scores.reduce((a, b) => (b.score >= a.score ? b : a)).name;
+}
+
+function getDiagnosticInfo(
+  m: MetricsState,
+  isAlarmActive: boolean,
+  device: string,
+  latchSource: string,
+): { text: string; style: DiagStyle } {
+  if (isAlarmActive) {
+    const sensorName = resolveSourceName(latchSource, m);
+    return { text: `Critical ${sensorName} reading on ${device} — autoencoder flag triggered.`, style: 'alert' };
   }
-  return { text: `Alert: Minor changes in ${worst.name} detected on ${device}.`, style: 'info' };
+  const sensorName = resolveSourceName('', m);
+  return { text: `Alert: Minor changes in ${sensorName} detected on ${device}.`, style: 'info' };
+}
+
+function formatAlarmAge(latchedAtMs: number): string {
+  const diffMs = Date.now() - latchedAtMs;
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return 'Happened just now';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `Happened ${diffMin} min${diffMin !== 1 ? 's' : ''} ago`;
+  const diffH = Math.floor(diffMin / 60);
+  if (diffH < 24) return `Happened ${diffH} hr${diffH !== 1 ? 's' : ''} ago`;
+  const diffD = Math.floor(diffH / 24);
+  return `Happened ${diffD} day${diffD !== 1 ? 's' : ''} ago`;
 }
 
 // ─── Metric Card ──────────────────────────────────────────────────────────────
@@ -107,13 +134,61 @@ function MetricCard({
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function DashboardScreen() {
-  const { currentMetrics, selectedSondeId, setSelectedSondeId } = useData();
+  const {
+    currentMetrics, selectedSondeId, setSelectedSondeId,
+    alarmLatchPerSonde, clearAlarmForSonde, timeTick, devicesList,
+  } = useData();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [isResetConfirming, setIsResetConfirming] = useState(false);
+  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const sonde = getSonde(selectedSondeId);
+  // Cancel pending confirm timer and snap back whenever the selected sonde changes
+  useEffect(() => {
+    setIsResetConfirming(false);
+    if (confirmTimerRef.current) {
+      clearTimeout(confirmTimerRef.current);
+      confirmTimerRef.current = null;
+    }
+    return () => {
+      if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+    };
+  }, [selectedSondeId]);
+
+  function handleResetPress() {
+    setIsResetConfirming(true);
+    confirmTimerRef.current = setTimeout(() => {
+      setIsResetConfirming(false);
+      confirmTimerRef.current = null;
+    }, 4000);
+  }
+
+  function handleConfirmReset() {
+    if (confirmTimerRef.current) {
+      clearTimeout(confirmTimerRef.current);
+      confirmTimerRef.current = null;
+    }
+    clearAlarmForSonde(selectedSondeId);
+    setIsResetConfirming(false);
+  }
+
+  const sondes: SondeConfig[] = devicesList.map((r) => ({
+    id: r.sonde_id,
+    label: `${r.location_name} (${sondeIdToName(r.sonde_id)})`,
+    site: r.location_name,
+    device: sondeIdToName(r.sonde_id),
+  }));
+
+  const sonde: SondeConfig = sondes.find((s) => s.id === selectedSondeId) ?? {
+    id: selectedSondeId,
+    label: sondeIdToName(selectedSondeId),
+    site: sondeIdToName(selectedSondeId),
+    device: sondeIdToName(selectedSondeId),
+  };
+
   const statusIsNormal = !currentMetrics.isAnomaly;
+  const isAwaitingFirstData = currentMetrics === EMPTY_METRICS;
 
-  function handleSondeSelect(id: SondeId) {
+  function handleSondeSelect(id: string) {
     setSelectedSondeId(id);
     setDropdownOpen(false);
   }
@@ -160,7 +235,7 @@ export default function DashboardScreen() {
 
             {dropdownOpen && (
               <View style={styles.dropdownPanel}>
-                {SONDES.map((s, i) => {
+                {sondes.map((s, i) => {
                   const isActive = s.id === selectedSondeId;
                   return (
                     <TouchableOpacity
@@ -168,7 +243,7 @@ export default function DashboardScreen() {
                       style={[
                         styles.dropdownOption,
                         isActive && styles.dropdownOptionActive,
-                        i < SONDES.length - 1 && styles.dropdownOptionBorder,
+                        i < sondes.length - 1 && styles.dropdownOptionBorder,
                       ]}
                       onPress={() => handleSondeSelect(s.id)}
                       activeOpacity={0.75}
@@ -217,41 +292,92 @@ export default function DashboardScreen() {
           {/* ── Individual Metric Cards ── */}
           <Text style={styles.sectionLabel}>Live Readings</Text>
 
-          {/* Row 1: Temperature + DO */}
-          <View style={styles.row}>
-            <MetricCard label="Temperature" value={currentMetrics.temperature} status={tempSt} />
-            <MetricCard label="Dissolved O₂" value={currentMetrics.dissolvedOxygen} status={doSt} />
-          </View>
-
-          {/* Row 2: pH + Turbidity */}
-          <View style={styles.row}>
-            <MetricCard label="pH Level" value={currentMetrics.pH} status={phSt} />
-            <MetricCard label="Turbidity" value={currentMetrics.turbidity} status={turbSt} />
-          </View>
-
-          {/* Row 3: Depth — full width */}
-          <View style={styles.card}>
-            <View style={[styles.metricCardTop, { justifyContent: 'space-between' }]}>
-              <Text style={styles.metricCardLabel}>Water Depth</Text>
-              <View style={[styles.statusPill, { backgroundColor: depthSt.bg }]}>
-                <View style={[styles.statusPillDot, { backgroundColor: depthSt.color }]} />
-                <Text style={[styles.statusPillText, { color: depthSt.color }]}>{depthSt.label}</Text>
+          {isAwaitingFirstData ? (
+            <View style={styles.waitingCard}>
+              <View style={styles.waitingIconRow}>
+                <View style={styles.waitingPulse} />
+                <Text style={styles.waitingTitle}>No Data Yet</Text>
               </View>
+              <Text style={styles.waitingMsg}>
+                Waiting for initial hardware transmission…
+              </Text>
+              <Text style={styles.waitingHint}>
+                This device will appear live once the sonde sends its first sensor packet.
+              </Text>
             </View>
-            <Text style={[styles.metricCardValue, styles.depthValue]}>{currentMetrics.depth}</Text>
-            <Text style={styles.updateText}>Updated {currentMetrics.lastUpdate}</Text>
-          </View>
+          ) : (
+            <>
+              {/* Row 1: Temperature + DO */}
+              <View style={styles.row}>
+                <MetricCard label="Temperature" value={currentMetrics.temperature} status={tempSt} />
+                <MetricCard label="Dissolved O₂" value={currentMetrics.dissolvedOxygen} status={doSt} />
+              </View>
 
-          {/* ── Diagnostic Banner — always visible ── */}
-          {(() => {
-            const diag = getDiagnosticInfo(currentMetrics, currentMetrics.isAnomaly, sonde.device);
+              {/* Row 2: pH + Turbidity */}
+              <View style={styles.row}>
+                <MetricCard label="pH Level" value={currentMetrics.pH} status={phSt} />
+                <MetricCard label="Turbidity" value={currentMetrics.turbidity} status={turbSt} />
+              </View>
+
+              {/* Row 3: Depth — full width */}
+              <View style={styles.card}>
+                <View style={[styles.metricCardTop, { justifyContent: 'space-between' }]}>
+                  <Text style={styles.metricCardLabel}>Water Depth</Text>
+                  <View style={[styles.statusPill, { backgroundColor: depthSt.bg }]}>
+                    <View style={[styles.statusPillDot, { backgroundColor: depthSt.color }]} />
+                    <Text style={[styles.statusPillText, { color: depthSt.color }]}>{depthSt.label}</Text>
+                  </View>
+                </View>
+                <Text style={[styles.metricCardValue, styles.depthValue]}>{currentMetrics.depth}</Text>
+                <Text style={styles.updateText}>Updated {currentMetrics.lastUpdate}</Text>
+              </View>
+            </>
+          )}
+
+          {/* ── Diagnostic Banner — suppressed until first packet arrives ── */}
+          {!isAwaitingFirstData && (() => {
+            const latch = alarmLatchPerSonde[selectedSondeId] ?? null;
+            const isLatched = latch !== null;
+            const isAlarmActive = isLatched || currentMetrics.isAnomaly;
+            const alarmAge = isLatched ? formatAlarmAge(latch.latchedAt) : '';
+            const diag = getDiagnosticInfo(
+              currentMetrics, isAlarmActive, sonde.device, latch?.source ?? '',
+            );
             const theme = DIAG_THEMES[diag.style];
             return (
               <View style={[styles.diagBanner, { backgroundColor: theme.bannerBg, borderColor: theme.bannerBorder }]}>
-                <View style={[styles.diagIconBox, { backgroundColor: theme.iconBg }]}>
-                  <Text style={[styles.diagIconText, { color: theme.textColor }]}>!</Text>
+                <View style={styles.diagBannerRow}>
+                  <View style={[styles.diagIconBox, { backgroundColor: theme.iconBg }]}>
+                    <Text style={[styles.diagIconText, { color: theme.textColor }]}>!</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.diagText, { color: theme.textColor }]}>{diag.text}</Text>
+                    {alarmAge ? (
+                      <Text style={[styles.diagAgeText, { color: theme.textColor }]}>{alarmAge}</Text>
+                    ) : null}
+                  </View>
                 </View>
-                <Text style={[styles.diagText, { color: theme.textColor }]}>{diag.text}</Text>
+                {isLatched && (
+                  <TouchableOpacity
+                    onPress={isResetConfirming ? handleConfirmReset : handleResetPress}
+                    style={[
+                      styles.clearAlarmBtn,
+                      isResetConfirming && styles.clearAlarmBtnConfirm,
+                    ]}
+                    activeOpacity={0.7}
+                  >
+                    {isResetConfirming ? (
+                      <View style={styles.clearAlarmInner}>
+                        <Ionicons name="checkmark-circle" size={14} color="#fbbf24" />
+                        <Text style={[styles.clearAlarmText, styles.clearAlarmTextConfirm]}>
+                          Confirm Reset?
+                        </Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.clearAlarmText}>Clear & Reset Alarm</Text>
+                    )}
+                  </TouchableOpacity>
+                )}
               </View>
             );
           })()}
@@ -399,13 +525,50 @@ const styles = StyleSheet.create({
   updateText: { fontSize: 11, color: 'rgba(255,255,255,0.35)' },
 
   diagBanner: {
-    borderWidth: 1, borderRadius: 14, padding: 14,
-    flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: 2,
+    borderWidth: 1, borderRadius: 14, padding: 14, marginTop: 2,
+  },
+  diagBannerRow: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
   },
   diagIconBox: {
     width: 22, height: 22, borderRadius: 11,
     justifyContent: 'center', alignItems: 'center',
   },
   diagIconText: { fontSize: 13, fontWeight: '800' },
-  diagText: { fontSize: 13, fontWeight: '500', flex: 1, lineHeight: 20 },
+  diagText: { fontSize: 13, fontWeight: '500', lineHeight: 20 },
+  diagAgeText: { fontSize: 11, fontWeight: '600', marginTop: 4, opacity: 0.75 },
+  clearAlarmBtn: {
+    marginTop: 12, alignSelf: 'flex-end',
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
+    backgroundColor: 'rgba(248,113,113,0.15)',
+    borderWidth: 1, borderColor: 'rgba(248,113,113,0.3)',
+  },
+  clearAlarmText: { color: '#f87171', fontSize: 12, fontWeight: '700' },
+  clearAlarmBtnConfirm: {
+    backgroundColor: 'rgba(251,191,36,0.15)',
+    borderColor: 'rgba(251,191,36,0.4)',
+  },
+  clearAlarmInner: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  clearAlarmTextConfirm: { color: '#fbbf24' },
+
+  waitingCard: {
+    backgroundColor: 'rgba(74,158,255,0.07)',
+    borderRadius: 16, borderWidth: 1,
+    borderColor: 'rgba(74,158,255,0.2)',
+    padding: 24, alignItems: 'center', marginBottom: 12,
+  },
+  waitingIconRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
+  waitingPulse: {
+    width: 10, height: 10, borderRadius: 5,
+    backgroundColor: '#4a9eff', opacity: 0.7,
+  },
+  waitingTitle: { fontSize: 15, fontWeight: '700', color: 'rgba(255,255,255,0.7)' },
+  waitingMsg: {
+    fontSize: 13, fontWeight: '600', color: '#4a9eff',
+    textAlign: 'center', marginBottom: 8,
+  },
+  waitingHint: {
+    fontSize: 11, color: 'rgba(255,255,255,0.35)',
+    textAlign: 'center', lineHeight: 16,
+  },
 });

@@ -5,7 +5,9 @@ import { StatusBar } from 'expo-status-bar';
 import { useState, useRef } from 'react';
 import MapView, { Marker, Callout, Region } from 'react-native-maps';
 import { useData } from '@/src/DataContext';
-import type { SondeId } from '@/src/DataContext';
+import type { RegisteredDevice } from '@/src/DataContext';
+
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const INITIAL_REGION: Region = {
   latitude: 47.5861,
@@ -14,36 +16,40 @@ const INITIAL_REGION: Region = {
   longitudeDelta: 0.05,
 };
 
+const FALLBACK_LAT = 47.6;
+const FALLBACK_LNG = -122.3;
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function sondeIdToName(id: string): string {
+  const m = id.match(/^sonde_(\w+)$/i);
+  if (m) return `Sonde #${m[1]}`;
+  return id.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 type Site = {
-  id: string;
-  sondeId: SondeId;
+  sonde_id: string;
   deviceName: string;
-  name: string;
+  location_name: string;
   latitude: number;
   longitude: number;
-  battery: number;
+  battery_level: number;
 };
 
-const SITES: Site[] = [
-  {
-    id: 's1',
-    sondeId: 'sonde_12',
-    deviceName: 'Sonde #12',
-    name: 'Pine Lake',
-    latitude: 47.5878,
-    longitude: -122.0468,
-    battery: 82,
-  },
-  {
-    id: 's2',
-    sondeId: 'sonde_45',
-    deviceName: 'Sonde #45',
-    name: 'Wetland Creek',
-    latitude: 47.5835,
-    longitude: -122.0395,
-    battery: 23,
-  },
-];
+function registeredToSite(r: RegisteredDevice): Site {
+  return {
+    sonde_id: r.sonde_id,
+    deviceName: sondeIdToName(r.sonde_id),
+    location_name: r.location_name,
+    latitude: r.latitude ?? FALLBACK_LAT,
+    longitude: r.longitude ?? FALLBACK_LNG,
+    battery_level: r.battery_level ?? 100,
+  };
+}
+
+// ─── Map style ────────────────────────────────────────────────────────────────
 
 const DARK_MAP_STYLE = [
   { elementType: 'geometry', stylers: [{ color: '#0d1b2a' }] },
@@ -69,6 +75,8 @@ const DARK_MAP_STYLE = [
   { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#4e6d70' }] },
 ];
 
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
 function CustomMarker({
   site,
   isSelected,
@@ -90,30 +98,36 @@ function CustomMarker({
   );
 }
 
+// ─── Screen ───────────────────────────────────────────────────────────────────
+
 export default function MapScreen() {
-  const { metricsPerSonde } = useData();
-  const [selected, setSelected] = useState<Site>(SITES[0]);
+  const { metricsPerSonde, devicesList } = useData();
+  const sites = devicesList.map(registeredToSite);
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const mapRef = useRef<MapView>(null);
 
+  // Resolve selected site: prefer explicit user choice, then first in list
+  const selected = sites.find((s) => s.sonde_id === selectedId) ?? sites[0] ?? null;
+
   function focusSite(site: Site) {
-    setSelected(site);
+    setSelectedId(site.sonde_id);
     mapRef.current?.animateToRegion(
       { latitude: site.latitude, longitude: site.longitude, latitudeDelta: 0.018, longitudeDelta: 0.018 },
       450,
     );
   }
 
-  const selectedMetrics = metricsPerSonde[selected.sondeId];
+  const selectedMetrics = selected ? metricsPerSonde[selected.sonde_id] : undefined;
   const selectedIsAnomaly = !!selectedMetrics?.isAnomaly;
 
-  // All 6 metric fields for the expanded card grid
   const metricGrid = [
     { label: 'Temp',      value: selectedMetrics?.temperature      ?? '—' },
     { label: 'DO',        value: selectedMetrics?.dissolvedOxygen   ?? '—' },
     { label: 'pH',        value: selectedMetrics?.pH                ?? '—' },
     { label: 'Turbidity', value: selectedMetrics?.turbidity         ?? '—' },
     { label: 'Depth',     value: selectedMetrics?.depth             ?? '—' },
-    { label: 'Battery',   value: `${selected.battery}%`                    },
+    { label: 'Battery',   value: selected ? `${selected.battery_level}%` : '—' },
   ];
 
   return (
@@ -135,7 +149,7 @@ export default function MapScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Real Map */}
+        {/* Map */}
         <View style={styles.mapWrapper}>
           <MapView
             ref={mapRef}
@@ -148,24 +162,24 @@ export default function MapScreen() {
             showsScale={false}
             toolbarEnabled={false}
           >
-            {SITES.map((site) => {
-              const siteAnomaly = !!metricsPerSonde[site.sondeId]?.isAnomaly;
+            {sites.map((site) => {
+              const siteAnomaly = !!metricsPerSonde[site.sonde_id]?.isAnomaly;
               return (
                 <Marker
-                  key={site.id}
+                  key={site.sonde_id}
                   coordinate={{ latitude: site.latitude, longitude: site.longitude }}
                   onPress={() => focusSite(site)}
                   tracksViewChanges={true}
                 >
                   <CustomMarker
                     site={site}
-                    isSelected={selected.id === site.id}
+                    isSelected={selected?.sonde_id === site.sonde_id}
                     isAnomaly={siteAnomaly}
                   />
                   <Callout tooltip>
                     <View style={styles.calloutBox}>
                       <Text style={styles.calloutTitle}>{site.deviceName}</Text>
-                      <Text style={styles.calloutSub}>{site.name}</Text>
+                      <Text style={styles.calloutSub}>{site.location_name}</Text>
                     </View>
                   </Callout>
                 </Marker>
@@ -174,68 +188,69 @@ export default function MapScreen() {
           </MapView>
         </View>
 
-        {/* Selected-Site Detail Card — expanded 6-metric grid */}
-        <View style={styles.siteCard}>
-          <View style={styles.siteCardHeader}>
-            <View>
-              <Text style={styles.siteName}>{selected.deviceName} — {selected.name}</Text>
-              <Text style={styles.siteSubtitle}>
-                {selectedMetrics ? `Updated ${selectedMetrics.lastUpdate}` : 'Awaiting data…'}
-              </Text>
-            </View>
-            <View
-              style={[
-                styles.siteStatusBadge,
-                selectedIsAnomaly ? styles.siteStatusWarning : styles.siteStatusActive,
-              ]}
-            >
+        {/* Selected-Site Detail Card */}
+        {selected ? (
+          <View style={styles.siteCard}>
+            <View style={styles.siteCardHeader}>
+              <View>
+                <Text style={styles.siteName}>{selected.deviceName} — {selected.location_name}</Text>
+                <Text style={styles.siteSubtitle}>
+                  {selectedMetrics ? `Updated ${selectedMetrics.lastUpdate}` : 'Awaiting data…'}
+                </Text>
+              </View>
               <View
                 style={[
-                  styles.siteStatusDot,
-                  { backgroundColor: selectedIsAnomaly ? '#f87171' : '#4ade80' },
-                ]}
-              />
-              <Text
-                style={[
-                  styles.siteStatusText,
-                  { color: selectedIsAnomaly ? '#f87171' : '#4ade80' },
+                  styles.siteStatusBadge,
+                  selectedIsAnomaly ? styles.siteStatusWarning : styles.siteStatusActive,
                 ]}
               >
-                {selectedIsAnomaly ? 'Anomaly' : 'Active'}
-              </Text>
+                <View
+                  style={[styles.siteStatusDot, { backgroundColor: selectedIsAnomaly ? '#f87171' : '#4ade80' }]}
+                />
+                <Text style={[styles.siteStatusText, { color: selectedIsAnomaly ? '#f87171' : '#4ade80' }]}>
+                  {selectedIsAnomaly ? 'Anomaly' : 'Active'}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.metricsGrid}>
+              {metricGrid.map((m, i) => (
+                <View key={m.label} style={[styles.metricCell, i < 3 && styles.metricCellBorderBottom]}>
+                  <Text style={styles.metricCellLabel}>{m.label}</Text>
+                  <Text style={styles.metricCellValue}>{m.value}</Text>
+                </View>
+              ))}
             </View>
           </View>
-
-          {/* 3-column × 2-row metric grid */}
-          <View style={styles.metricsGrid}>
-            {metricGrid.map((m, i) => (
-              <View key={m.label} style={[styles.metricCell, i < 3 && styles.metricCellBorderBottom]}>
-                <Text style={styles.metricCellLabel}>{m.label}</Text>
-                <Text style={styles.metricCellValue}>{m.value}</Text>
-              </View>
-            ))}
+        ) : (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyText}>No devices registered yet.</Text>
+            <Text style={styles.emptySubtext}>Add a device on the Devices tab to see it here.</Text>
           </View>
-        </View>
+        )}
 
         {/* Site Selector Pills */}
-        <View style={styles.siteList}>
-          {SITES.map((site) => {
-            const siteAnomaly = !!metricsPerSonde[site.sondeId]?.isAnomaly;
-            return (
-              <TouchableOpacity
-                key={site.id}
-                onPress={() => focusSite(site)}
-                style={[styles.sitePill, selected.id === site.id && styles.sitePillActive]}
-                activeOpacity={0.75}
-              >
-                <View style={[styles.pillDot, { backgroundColor: siteAnomaly ? '#f87171' : '#4ade80' }]} />
-                <Text style={[styles.sitePillText, selected.id === site.id && styles.sitePillTextActive]}>
-                  {site.deviceName}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+        {sites.length > 0 && (
+          <View style={styles.siteList}>
+            {sites.map((site) => {
+              const siteAnomaly = !!metricsPerSonde[site.sonde_id]?.isAnomaly;
+              const isActive = selected?.sonde_id === site.sonde_id;
+              return (
+                <TouchableOpacity
+                  key={site.sonde_id}
+                  onPress={() => focusSite(site)}
+                  style={[styles.sitePill, isActive && styles.sitePillActive]}
+                  activeOpacity={0.75}
+                >
+                  <View style={[styles.pillDot, { backgroundColor: siteAnomaly ? '#f87171' : '#4ade80' }]} />
+                  <Text style={[styles.sitePillText, isActive && styles.sitePillTextActive]}>
+                    {site.deviceName}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
 
       </SafeAreaView>
     </LinearGradient>
@@ -308,25 +323,25 @@ const styles = StyleSheet.create({
   siteStatusDot: { width: 6, height: 6, borderRadius: 3 },
   siteStatusText: { fontSize: 11, fontWeight: '700' },
 
-  // 3-column metric grid
   metricsGrid: { flexDirection: 'row', flexWrap: 'wrap' },
-  metricCell: {
-    width: '33.33%',
-    paddingVertical: 8,
-    paddingHorizontal: 2,
-    alignItems: 'center',
-  },
-  metricCellBorderBottom: {
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.07)',
-  },
+  metricCell: { width: '33.33%', paddingVertical: 8, paddingHorizontal: 2, alignItems: 'center' },
+  metricCellBorderBottom: { borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)' },
   metricCellLabel: {
     fontSize: 9, fontWeight: '600', color: 'rgba(255,255,255,0.4)',
     textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 3,
   },
   metricCellValue: { fontSize: 14, fontWeight: '700', color: '#4a9eff' },
 
-  siteList: { flexDirection: 'row', paddingHorizontal: 12, paddingBottom: 10, gap: 10 },
+  emptyCard: {
+    marginHorizontal: 12, marginTop: 10, marginBottom: 8,
+    backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 16,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+    padding: 24, alignItems: 'center',
+  },
+  emptyText: { color: 'rgba(255,255,255,0.5)', fontSize: 14, fontWeight: '600' },
+  emptySubtext: { color: 'rgba(255,255,255,0.3)', fontSize: 12, marginTop: 4, textAlign: 'center' },
+
+  siteList: { flexDirection: 'row', paddingHorizontal: 12, paddingBottom: 10, gap: 10, flexWrap: 'wrap' },
   sitePill: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,

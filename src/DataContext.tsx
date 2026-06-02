@@ -3,7 +3,7 @@ import { supabase } from './supabase';
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
 
-export type SondeId = 'sonde_12' | 'sonde_45';
+export type SondeId = string;
 
 export type SensorRow = {
   id?: number;
@@ -15,6 +15,13 @@ export type SensorRow = {
   ph: number;
   turbidity: number;
   is_anomaly: boolean;
+  // Expanded autoencoder payload
+  anomaly_source?: string;
+  std_dissolved_oxygen?: number;
+  std_temperature?: number;
+  std_ph?: number;
+  std_turbidity?: number;
+  std_water_depth?: number;
 };
 
 export type MetricsState = {
@@ -34,6 +41,13 @@ export type MetricsState = {
   rawDepth: number;
   rawPH: number;
   rawTurbidity: number;
+  // Expanded autoencoder state
+  anomalySource: string;
+  stdDO: number;
+  stdTemp: number;
+  stdPH: number;
+  stdTurbidity: number;
+  stdDepth: number;
 };
 
 export type HistoricalPoint = {
@@ -47,13 +61,36 @@ export type HistoricalPoint = {
   is_anomaly: boolean;
 };
 
+// Latched alarm: persists from first anomaly until manually cleared
+export type AlarmLatch = {
+  latchedAt: number; // ms epoch of the first anomalous row
+  source: string;    // anomaly_source captured at latch time
+} | null;
+
+export type RegisteredDevice = {
+  id?: number;
+  sonde_id: string;
+  location_name: string;
+  battery_level?: number;
+  signal?: string;
+  firmware?: string;
+  latitude?: number;
+  longitude?: number;
+  created_at?: string;
+};
+
 type DataContextValue = {
   selectedSondeId: SondeId;
   setSelectedSondeId: (id: SondeId) => void;
   metricsPerSonde: Record<string, MetricsState>;
   currentMetrics: MetricsState;
   historicalData: HistoricalPoint[];
-  lastSeenPerSonde: Record<string, number>; // ms epoch of latest INSERT per sonde
+  lastSeenPerSonde: Record<string, number>;
+  alarmLatchPerSonde: Record<string, AlarmLatch>;
+  clearAlarmForSonde: (sondeId: SondeId) => void;
+  timeTick: number;
+  devicesList: RegisteredDevice[];
+  addDevice: (device: RegisteredDevice) => void;
 };
 
 // ─── Seed data ────────────────────────────────────────────────────────────────
@@ -74,6 +111,12 @@ export const SONDE_SEEDS: Record<SondeId, MetricsState> = {
     rawDepth: 1.42,
     rawPH: 7.3,
     rawTurbidity: 7.9,
+    anomalySource: '',
+    stdDO: 0,
+    stdTemp: 0,
+    stdPH: 0,
+    stdTurbidity: 0,
+    stdDepth: 0,
   },
   sonde_45: {
     temperature: '10.0°C',
@@ -90,7 +133,37 @@ export const SONDE_SEEDS: Record<SondeId, MetricsState> = {
     rawDepth: 0.88,
     rawPH: 7.0,
     rawTurbidity: 12.3,
+    anomalySource: '',
+    stdDO: 0,
+    stdTemp: 0,
+    stdPH: 0,
+    stdTurbidity: 0,
+    stdDepth: 0,
   },
+};
+
+// Placeholder used when a selected sonde has no sensor_logs rows yet
+export const EMPTY_METRICS: MetricsState = {
+  temperature: '---',
+  dissolvedOxygen: '---',
+  depth: '---',
+  pH: '---',
+  turbidity: '---',
+  turbidityLevel: '---',
+  isAnomaly: false,
+  doHistory: [],
+  lastUpdate: 'Waiting for initial hardware transmission…',
+  rawTemp: 0,
+  rawDO: 0,
+  rawDepth: 0,
+  rawPH: 0,
+  rawTurbidity: 0,
+  anomalySource: '',
+  stdDO: 0,
+  stdTemp: 0,
+  stdPH: 0,
+  stdTurbidity: 0,
+  stdDepth: 0,
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -117,10 +190,29 @@ function rowToMetrics(row: SensorRow, prev: MetricsState): MetricsState {
     rawDepth: row.water_depth,
     rawPH: row.ph,
     rawTurbidity: row.turbidity,
+    anomalySource: row.anomaly_source ?? '',
+    stdDO: row.std_dissolved_oxygen ?? 0,
+    stdTemp: row.std_temperature ?? 0,
+    stdPH: row.std_ph ?? 0,
+    stdTurbidity: row.std_turbidity ?? 0,
+    stdDepth: row.std_water_depth ?? 0,
   };
 }
 
 const MAX_HISTORY = 200;
+
+// ─── Shared relative-time formatter ───────────────────────────────────────────
+// Compact form used by the Insights badge and any other consumer.
+// Pass a pre-captured `now` value from a ticker to keep strings reactive.
+export function formatRelativeTime(tsMs: number, now: number = Date.now()): string {
+  const diffSec = Math.floor((now - tsMs) / 1000);
+  if (diffSec < 60) return 'just now';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffH = Math.floor(diffMin / 60);
+  if (diffH < 24) return `${diffH}h ago`;
+  return `${Math.floor(diffH / 24)}d ago`;
+}
 
 // ─── Context ──────────────────────────────────────────────────────────────────
 
@@ -128,9 +220,14 @@ export const DataContext = createContext<DataContextValue>({
   selectedSondeId: 'sonde_12',
   setSelectedSondeId: () => {},
   metricsPerSonde: { ...SONDE_SEEDS },
-  currentMetrics: SONDE_SEEDS['sonde_12'],
+  currentMetrics: EMPTY_METRICS,
   historicalData: [],
   lastSeenPerSonde: {},
+  alarmLatchPerSonde: {},
+  clearAlarmForSonde: () => {},
+  timeTick: 0,
+  devicesList: [],
+  addDevice: () => {},
 });
 
 export function DataProvider({ children }: { children: React.ReactNode }) {
@@ -140,6 +237,58 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   });
   const [historicalData, setHistoricalData] = useState<HistoricalPoint[]>([]);
   const [lastSeenPerSonde, setLastSeenPerSonde] = useState<Record<string, number>>({});
+  const [alarmLatchPerSonde, setAlarmLatchPerSonde] = useState<Record<string, AlarmLatch>>({});
+  const [timeTick, setTimeTick] = useState(0);
+  const [devicesList, setDevicesList] = useState<RegisteredDevice[]>([]);
+
+  function addDevice(device: RegisteredDevice) {
+    setDevicesList((prev) => {
+      const idx = prev.findIndex((d) => d.sonde_id === device.sonde_id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = { ...prev[idx], ...device };
+        return next;
+      }
+      return [...prev, device];
+    });
+  }
+
+  function clearAlarmForSonde(sondeId: SondeId) {
+    setAlarmLatchPerSonde((prev) => ({ ...prev, [sondeId]: null }));
+    setMetricsPerSonde((prev) => {
+      const current = prev[sondeId];
+      if (!current) return prev;
+      return { ...prev, [sondeId]: { ...current, isAnomaly: false, anomalySource: '' } };
+    });
+  }
+
+  useEffect(() => {
+    const timer = setInterval(() => setTimeTick((t) => t + 1), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    supabase
+      .from('registered_devices')
+      .select('*')
+      .order('created_at', { ascending: true })
+      .then(({ data }) => {
+        if (data) setDevicesList(data as RegisteredDevice[]);
+      });
+
+    const devChannel = supabase
+      .channel('registered_devices_inserts')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'registered_devices' },
+        (payload) => {
+          addDevice(payload.new as RegisteredDevice);
+        },
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(devChannel); };
+  }, []);
 
   useEffect(() => {
     const channel = supabase
@@ -176,6 +325,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           });
 
           setLastSeenPerSonde((prev) => ({ ...prev, [id]: ts }));
+
+          // Latch alarm on first anomaly — never auto-clears, only manual reset
+          if (row.is_anomaly) {
+            setAlarmLatchPerSonde((prev) => {
+              if (prev[id] != null) return prev; // preserve original trigger time
+              return { ...prev, [id]: { latchedAt: ts, source: row.anomaly_source ?? '' } };
+            });
+          }
         },
       )
       .subscribe((status) => {
@@ -188,7 +345,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const currentMetrics =
-    metricsPerSonde[selectedSondeId] ?? SONDE_SEEDS[selectedSondeId];
+    metricsPerSonde[selectedSondeId] ?? SONDE_SEEDS[selectedSondeId] ?? EMPTY_METRICS;
 
   return (
     <DataContext.Provider
@@ -199,6 +356,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         currentMetrics,
         historicalData,
         lastSeenPerSonde,
+        alarmLatchPerSonde,
+        clearAlarmForSonde,
+        timeTick,
+        devicesList,
+        addDevice,
       }}
     >
       {children}

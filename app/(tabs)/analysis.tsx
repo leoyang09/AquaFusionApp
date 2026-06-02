@@ -14,17 +14,18 @@ import { StatusBar } from 'expo-status-bar';
 import { useState, useMemo } from 'react';
 import { LineChart } from 'react-native-gifted-charts';
 import { useData } from '@/src/DataContext';
-import type { HistoricalPoint, SondeId } from '@/src/DataContext';
+import type { HistoricalPoint } from '@/src/DataContext';
 
 const SCREEN_W = Dimensions.get('window').width;
 const CHART_W = SCREEN_W - 64;
 
-// ─── Sonde selector config ────────────────────────────────────────────────────
+// ─── Sonde display helpers ────────────────────────────────────────────────────
 
-const SONDES = [
-  { id: 'sonde_12' as SondeId, label: 'Pine Lake (Sonde #12)',      site: 'Pine Lake' },
-  { id: 'sonde_45' as SondeId, label: 'Wetland Creek (Sonde #45)', site: 'Wetland Creek' },
-];
+function sondeIdToName(id: string): string {
+  const m = id.match(/^sonde_(\w+)$/i);
+  if (m) return `Sonde #${m[1]}`;
+  return id.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
 
 // ─── Period filter ────────────────────────────────────────────────────────────
 
@@ -202,11 +203,21 @@ function SensorChart({
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function AnalysisScreen() {
-  const { historicalData, selectedSondeId, setSelectedSondeId } = useData();
+  const { historicalData, selectedSondeId, setSelectedSondeId, devicesList } = useData();
   const [activePeriod, setActivePeriod] = useState<Period>('24h');
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
-  const sonde = SONDES.find((s) => s.id === selectedSondeId)!;
+  const sondes = devicesList.map((r) => ({
+    id: r.sonde_id,
+    label: `${r.location_name} (${sondeIdToName(r.sonde_id)})`,
+    site: r.location_name,
+  }));
+
+  const sonde = sondes.find((s) => s.id === selectedSondeId) ?? {
+    id: selectedSondeId,
+    label: sondeIdToName(selectedSondeId),
+    site: sondeIdToName(selectedSondeId),
+  };;
 
   const sondeHistory = useMemo(
     () => historicalData.filter((h) => h.sonde_id === selectedSondeId),
@@ -271,7 +282,7 @@ export default function AnalysisScreen() {
 
             {dropdownOpen && (
               <View style={styles.dropdownPanel}>
-                {SONDES.map((s, i) => {
+                {sondes.map((s, i) => {
                   const isActive = s.id === selectedSondeId;
                   return (
                     <TouchableOpacity
@@ -279,7 +290,7 @@ export default function AnalysisScreen() {
                       style={[
                         styles.dropdownOption,
                         isActive && styles.dropdownOptionActive,
-                        i < SONDES.length - 1 && styles.dropdownOptionBorder,
+                        i < sondes.length - 1 && styles.dropdownOptionBorder,
                       ]}
                       onPress={() => { setSelectedSondeId(s.id); setDropdownOpen(false); }}
                       activeOpacity={0.75}
@@ -314,6 +325,16 @@ export default function AnalysisScreen() {
               </TouchableOpacity>
             ))}
           </View>
+
+          {/* No-data notice for newly registered devices */}
+          {sondeHistory.length === 0 && (
+            <View style={styles.noDataBanner}>
+              <Text style={styles.noDataTitle}>Waiting for initial hardware transmission…</Text>
+              <Text style={styles.noDataHint}>
+                Charts below show reference seed values. Live data will populate once this sonde sends its first packet.
+              </Text>
+            </View>
+          )}
 
           {/* 5 Sensor Charts */}
           {CHART_CONFIGS.map((cfg) => (
@@ -453,4 +474,13 @@ const styles = StyleSheet.create({
   actionBtnFill: { backgroundColor: '#4a9eff' },
   actionBtnTextOutline: { color: '#4a9eff', fontSize: 14, fontWeight: '700' },
   actionBtnTextFill: { color: '#ffffff', fontSize: 14, fontWeight: '700' },
+
+  noDataBanner: {
+    backgroundColor: 'rgba(74,158,255,0.07)',
+    borderRadius: 14, borderWidth: 1,
+    borderColor: 'rgba(74,158,255,0.2)',
+    padding: 16, marginBottom: 12,
+  },
+  noDataTitle: { fontSize: 13, fontWeight: '700', color: '#4a9eff', marginBottom: 6 },
+  noDataHint: { fontSize: 12, color: 'rgba(255,255,255,0.4)', lineHeight: 17 },
 });
