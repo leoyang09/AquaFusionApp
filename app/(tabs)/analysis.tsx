@@ -7,7 +7,9 @@ import {
   useWindowDimensions,
   Alert,
   Share,
+  ActivityIndicator,
 } from 'react-native';
+import { supabase } from '@/src/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -29,12 +31,14 @@ function sondeIdToName(id: string): string {
 const PERIODS = ['24h', '7d', '30d', '90d'] as const;
 type Period = (typeof PERIODS)[number];
 
-const MAX_POINTS: Record<Period, number> = {
-  '24h': 96,   // 96 × 15 min = 24 h
-  '7d':  200,  // rolling window cap
-  '30d': 200,
-  '90d': 200,
+const PERIOD_MS: Record<Period, number> = {
+  '24h':  86_400_000,
+  '7d':   604_800_000,
+  '30d':  2_592_000_000,
+  '90d':  7_776_000_000,
 };
+
+const DOWNSAMPLE_THRESHOLD = 100;
 
 // ─── Sensor chart configs ─────────────────────────────────────────────────────
 
@@ -92,24 +96,58 @@ const CHART_CONFIGS: ChartConfig[] = [
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-// Format index × 15 min as a readable label.
-function intervalLabel(i: number): string {
-  const totalMin = i * 15;
-  if (totalMin === 0) return '0';
-  if (totalMin < 60) return `${totalMin}m`;
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  return m === 0 ? `${h}h` : `${h}h${m}m`;
+type GiftedPoint = { value: number; label?: string };
+
+function formatTs(ts: number, periodMs: number): string {
+  const d = new Date(ts);
+  if (periodMs <= 86_400_000) {
+    return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+  }
+  if (periodMs <= 7 * 86_400_000) {
+    return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()];
+  }
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${months[d.getMonth()]} ${d.getDate()}`;
 }
 
-type GiftedPoint = { value: number; label?: string; dataPointText?: string };
+function downsampleAvg(arr: HistoricalPoint[], maxPts: number): HistoricalPoint[] {
+  if (arr.length <= maxPts) return arr;
+  const bucketSize = arr.length / maxPts;
+  return Array.from({ length: maxPts }, (_, i) => {
+    const start  = Math.floor(i * bucketSize);
+    const end    = Math.min(arr.length, Math.floor((i + 1) * bucketSize));
+    const bucket = arr.slice(start, end);
+    const n      = bucket.length;
+    return {
+      sonde_id:         bucket[0].sonde_id,
+      timestamp:        Math.round(bucket.reduce((s, h) => s + h.timestamp, 0) / n),
+      dissolved_oxygen: bucket.reduce((s, h) => s + h.dissolved_oxygen, 0) / n,
+      temperature:      bucket.reduce((s, h) => s + h.temperature, 0) / n,
+      ph:               bucket.reduce((s, h) => s + h.ph, 0) / n,
+      turbidity:        bucket.reduce((s, h) => s + h.turbidity, 0) / n,
+      water_depth:      bucket.reduce((s, h) => s + h.water_depth, 0) / n,
+      is_anomaly:       bucket.some((h) => h.is_anomaly),
+    };
+  });
+}
 
-function buildGiftedData(values: number[], isLive: boolean): GiftedPoint[] {
-  // Thin x-axis labels to avoid crowding
-  const step = values.length <= 8 ? 1 : values.length <= 20 ? 2 : values.length <= 48 ? 4 : 8;
+function buildLiveData(
+  slice: HistoricalPoint[],
+  extractor: (h: HistoricalPoint) => number,
+  periodMs: number,
+): GiftedPoint[] {
+  const thin = slice.length <= 8 ? 1 : slice.length <= 20 ? 2 : slice.length <= 48 ? 4 : 8;
+  return slice.map((h, i) => ({
+    value: parseFloat(extractor(h).toFixed(2)),
+    label: i % thin === 0 ? formatTs(h.timestamp, periodMs) : '',
+  }));
+}
+
+function buildFallbackData(values: number[]): GiftedPoint[] {
+  const thin = values.length <= 8 ? 1 : 2;
   return values.map((v, i) => ({
     value: parseFloat(v.toFixed(2)),
-    label: i % step === 0 ? (isLive ? intervalLabel(i) : `${i}`) : '',
+    label: i % thin === 0 ? `${i}` : '',
   }));
 }
 
@@ -131,24 +169,41 @@ function SensorChart({
   history,
   activePeriod,
   chartWidth,
+  windowStart,
+  windowEnd,
 }: {
   config: ChartConfig;
   history: HistoricalPoint[];
   activePeriod: Period;
   chartWidth: number;
+  windowStart: number;
+  windowEnd: number;
 }) {
+  const periodMs = PERIOD_MS[activePeriod];
   const isLive = history.length >= 2;
-  const raw = isLive
-    ? history.slice(-MAX_POINTS[activePeriod]).map(config.extractor)
-    : config.fallback;
+  const slice = isLive ? downsampleAvg(history, DOWNSAMPLE_THRESHOLD) : [];
+  const raw = isLive ? slice.map(config.extractor) : config.fallback;
 
-  const data = buildGiftedData(raw, isLive);
+  const data = isLive
+    ? buildLiveData(slice, config.extractor, periodMs)
+    : buildFallbackData(config.fallback);
   const maxVal = computeMax(raw, config.fixedMax);
   const avg = computeAvg(raw);
 
-  // Fit chart to card width when few points, scroll when many
-  const idealSpacing = raw.length > 1 ? (chartWidth - 10) / (raw.length - 1) : chartWidth;
-  const spacing = Math.max(20, Math.min(50, idealSpacing));
+  // Fixed-window spacing: scale chart so all points map proportionally into [windowStart, windowEnd]
+  let spacing: number;
+  let endSpacing: number;
+  if (isLive && slice.length > 1) {
+    const totalMs = Math.max(1, windowEnd - windowStart);
+    const dataSpanMs = Math.max(1, slice[slice.length - 1].timestamp - slice[0].timestamp);
+    const dataPixels = chartWidth * (dataSpanMs / totalMs);
+    spacing = Math.max(1, dataPixels / (slice.length - 1));
+    endSpacing = Math.max(8, chartWidth * ((windowEnd - slice[slice.length - 1].timestamp) / totalMs));
+  } else {
+    const idealSpacing = raw.length > 1 ? (chartWidth - 10) / (raw.length - 1) : chartWidth;
+    spacing = Math.max(20, Math.min(50, idealSpacing));
+    endSpacing = 16;
+  }
 
   return (
     <View style={styles.chartCard}>
@@ -184,15 +239,13 @@ function SensorChart({
         yAxisTextStyle={styles.yAxisText}
         xAxisLabelTextStyle={styles.xAxisText}
         backgroundColor="transparent"
-        initialSpacing={10}
-        endSpacing={16}
+        initialSpacing={4}
+        endSpacing={endSpacing}
         spacing={spacing}
         width={chartWidth}
         height={110}
         yAxisLabelWidth={36}
         isAnimated
-        animateOnDataChange
-        scrollToEnd
         formatYLabel={(v) => parseFloat(v).toFixed(1)}
       />
     </View>
@@ -205,6 +258,8 @@ export default function AnalysisScreen() {
   const { historicalData, selectedSondeId, setSelectedSondeId, devicesList } = useData();
   const [activePeriod, setActivePeriod] = useState<Period>('24h');
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isSharing,   setIsSharing]   = useState(false);
   const { width } = useWindowDimensions();
   const chartWidth = width - 64;
 
@@ -225,31 +280,98 @@ export default function AnalysisScreen() {
     [historicalData, selectedSondeId],
   );
 
-  async function handleShare() {
-    const isLive = sondeHistory.length >= 2;
-    const doVals = isLive ? sondeHistory.map((h) => h.dissolved_oxygen) : CHART_CONFIGS[0].fallback;
-    const doAvg = computeAvg(doVals);
+  const now = Date.now();
+  const periodMs = PERIOD_MS[activePeriod];
+
+  // Cap history to the selected period window so charts reflect the chosen range
+  const periodHistory = useMemo(
+    () => sondeHistory.filter((h) => h.timestamp >= now - periodMs),
+    [sondeHistory, activePeriod],
+  );
+
+  const firstTs = periodHistory.length > 0 ? periodHistory[0].timestamp : now;
+  const lastTs  = periodHistory.length > 0 ? periodHistory[periodHistory.length - 1].timestamp : now;
+  const windowStart = firstTs;
+  // Grows naturally from the first reading toward the full period, then freezes.
+  // Math.max(lastTs, …) guarantees the most recent point is never clipped.
+  const windowEnd = Math.max(lastTs, Math.min(now, firstTs + periodMs));
+
+  async function handleExport() {
+    setIsExporting(true);
     try {
+      const { data, error } = await supabase
+        .from('sensor_logs')
+        .select('created_at,dissolved_oxygen,temperature,ph,turbidity,water_depth,is_anomaly')
+        .eq('sonde_id', selectedSondeId)
+        .order('created_at', { ascending: true })
+        .limit(2000);
+
+      if (error) throw error;
+      if (!data || data.length === 0) {
+        Alert.alert('No Data', 'No sensor logs found for this device.');
+        return;
+      }
+
+      const header = 'timestamp,dissolved_oxygen,temperature,ph,turbidity,water_depth,is_anomaly';
+      const rows = data.map((r) =>
+        `${r.created_at},${r.dissolved_oxygen},${r.temperature},${r.ph},${r.turbidity},${r.water_depth},${r.is_anomaly}`
+      );
+      const csv = [header, ...rows].join('\n');
+
+      await Share.share({
+        title: `AquaFusion_${sonde.site.replace(/\s+/g, '_')}_export.csv`,
+        message: csv,
+      });
+    } catch (err: any) {
+      Alert.alert('Export Failed', err?.message ?? 'Could not fetch sensor data.');
+      if (__DEV__) console.error('[Export]', err);
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
+  async function handleShare() {
+    setIsSharing(true);
+    try {
+      const { data, error } = await supabase
+        .from('sensor_logs')
+        .select('dissolved_oxygen,temperature,ph,turbidity,water_depth,is_anomaly,created_at')
+        .eq('sonde_id', selectedSondeId)
+        .order('created_at', { ascending: false })
+        .limit(500);
+
+      if (error) throw error;
+      const rows = data ?? [];
+      const numAvg = (key: 'dissolved_oxygen' | 'temperature' | 'ph' | 'turbidity' | 'water_depth') =>
+        rows.length > 0
+          ? (rows.reduce((s, r) => s + (r[key] as number), 0) / rows.length).toFixed(2)
+          : '—';
+
+      const anomalyCount = rows.filter((r) => r.is_anomaly).length;
+      const firstReading = rows.length > 0 ? rows[rows.length - 1].created_at : 'N/A';
+      const lastReading  = rows.length > 0 ? rows[0].created_at : 'N/A';
+
       await Share.share({
         title: 'AquaFusion — Water Quality Report',
         message:
           `AquaFusion Water Quality Report\n` +
-          `Site: ${sonde.site}\n\n` +
-          `DO Avg: ${doAvg} mg/L\n` +
-          `Data points: ${sondeHistory.length}\n\n` +
+          `Site: ${sonde.site}\n` +
+          `Device: ${selectedSondeId}\n` +
+          `Period: ${firstReading} → ${lastReading}\n` +
+          `Readings: ${rows.length}  |  Anomalies: ${anomalyCount}\n\n` +
+          `Dissolved Oxygen Avg: ${numAvg('dissolved_oxygen')} mg/L\n` +
+          `Temperature Avg:      ${numAvg('temperature')} °C\n` +
+          `pH Avg:               ${numAvg('ph')}\n` +
+          `Turbidity Avg:        ${numAvg('turbidity')} NTU\n` +
+          `Water Depth Avg:      ${numAvg('water_depth')} m\n\n` +
           `Generated by AquaFusion Monitoring System`,
       });
-    } catch {
-      // dismissed
+    } catch (err: any) {
+      Alert.alert('Share Failed', err?.message ?? 'Could not fetch report data.');
+      if (__DEV__) console.error('[Share]', err);
+    } finally {
+      setIsSharing(false);
     }
-  }
-
-  function handleExport() {
-    Alert.alert(
-      'Export CSV',
-      `Preparing sensor export for ${sonde.site}.\n${sondeHistory.length} records found.\n\nFile will be downloaded to your device.`,
-      [{ text: 'OK' }],
-    );
   }
 
   return (
@@ -342,27 +464,37 @@ export default function AnalysisScreen() {
             <SensorChart
               key={cfg.title}
               config={cfg}
-              history={sondeHistory}
+              history={periodHistory}
               activePeriod={activePeriod}
               chartWidth={chartWidth}
+              windowStart={windowStart}
+              windowEnd={windowEnd}
             />
           ))}
 
           {/* Export / Share */}
           <View style={styles.actionRow}>
             <TouchableOpacity
-              style={[styles.actionBtn, styles.actionBtnOutline]}
+              style={[styles.actionBtn, styles.actionBtnOutline, isExporting && styles.actionBtnDisabled]}
               onPress={handleExport}
+              disabled={isExporting}
               activeOpacity={0.8}
             >
-              <Text style={styles.actionBtnTextOutline}>Export CSV</Text>
+              {isExporting
+                ? <ActivityIndicator size="small" color="#4a9eff" />
+                : <Text style={styles.actionBtnTextOutline}>Export CSV</Text>
+              }
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.actionBtn, styles.actionBtnFill]}
+              style={[styles.actionBtn, styles.actionBtnFill, isSharing && styles.actionBtnDisabled]}
               onPress={handleShare}
+              disabled={isSharing}
               activeOpacity={0.8}
             >
-              <Text style={styles.actionBtnTextFill}>Share Report</Text>
+              {isSharing
+                ? <ActivityIndicator size="small" color="#ffffff" />
+                : <Text style={styles.actionBtnTextFill}>Share Report</Text>
+              }
             </TouchableOpacity>
           </View>
 
@@ -476,6 +608,7 @@ const styles = StyleSheet.create({
   actionBtnFill: { backgroundColor: '#4a9eff' },
   actionBtnTextOutline: { color: '#4a9eff', fontSize: 14, fontWeight: '700' },
   actionBtnTextFill: { color: '#ffffff', fontSize: 14, fontWeight: '700' },
+  actionBtnDisabled: { opacity: 0.55 },
 
   noDataBanner: {
     backgroundColor: 'rgba(74,158,255,0.07)',

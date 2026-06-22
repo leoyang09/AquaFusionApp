@@ -276,7 +276,7 @@ async function registerForPushNotificationsAsync(sondeId: string): Promise<void>
 // ─── Context ──────────────────────────────────────────────────────────────────
 
 export const DataContext = createContext<DataContextValue>({
-  selectedSondeId: 'sonde_12',
+  selectedSondeId: 'device_12',
   setSelectedSondeId: () => {},
   metricsPerSonde: { ...SONDE_SEEDS },
   currentMetrics: EMPTY_METRICS,
@@ -290,7 +290,7 @@ export const DataContext = createContext<DataContextValue>({
 });
 
 export function DataProvider({ children }: { children: React.ReactNode }) {
-  const [selectedSondeId, setSelectedSondeId] = useState<SondeId>('sonde_12');
+  const [selectedSondeId, setSelectedSondeId] = useState<SondeId>('device_12');
   const [metricsPerSonde, setMetricsPerSonde] = useState<Record<string, MetricsState>>({
     ...SONDE_SEEDS,
   });
@@ -303,12 +303,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   function addDevice(device: RegisteredDevice) {
     setDevicesList((prev) => {
       const idx = prev.findIndex((d) => d.sonde_id === device.sonde_id);
+      let next: RegisteredDevice[];
       if (idx >= 0) {
-        const next = [...prev];
+        next = [...prev];
         next[idx] = { ...prev[idx], ...device };
-        return next;
+      } else {
+        next = [...prev, device];
       }
-      return [...prev, device];
+      return next.sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
     });
   }
 
@@ -335,7 +337,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     supabase
       .from('registered_devices')
       .select('*')
-      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
       .then(({ data }) => {
         if (data) setDevicesList(data as RegisteredDevice[]);
       });

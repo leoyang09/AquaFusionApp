@@ -1,0 +1,251 @@
+.panel {
+  grid-area: fleet;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: 14px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.panelTitle {
+  font-family: var(--font-display);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.20em;
+  color: var(--text-muted);
+}
+
+.deviceCount {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--cyan-dim);
+  letter-spacing: 0.10em;
+}
+
+/* ── Device list ── */
+.list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  flex: 1;
+  padding-right: 2px;
+}
+
+/* ── Device row ── */
+.device {
+  position: relative;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 10px 10px 10px 14px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.device:hover { background: rgba(0, 242, 255, 0.04); }
+
+.deviceActive {
+  border-color: var(--border-mid);
+  background: rgba(0, 242, 255, 0.05);
+}
+
+.deviceAlarm {
+  border-color: rgba(255, 59, 92, 0.35) !important;
+  background: rgba(255, 59, 92, 0.04) !important;
+}
+
+.activeAccent {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: transparent;
+  transition: background 0.2s;
+  border-radius: 3px 0 0 3px;
+}
+
+.deviceActive .activeAccent  { background: var(--cyan); }
+.deviceAlarm  .activeAccent  { background: #FF3B5C; }
+
+/* ── Device top row ── */
+.deviceTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.deviceName {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.deviceDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dotActive { background: var(--cyan); box-shadow: 0 0 5px var(--cyan); }
+.dotAlarm  { background: #FF3B5C; animation: dot-pulse 1.4s ease-in-out infinite; }
+.dotIdle   { background: rgba(255, 255, 255, 0.2); }
+
+.deviceLabel {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.alarmTag {
+  font-family: var(--font-display);
+  font-size: 6.5px;
+  font-weight: 700;
+  letter-spacing: 0.10em;
+  color: #FF3B5C;
+  background: rgba(255, 59, 92, 0.12);
+  border: 1px solid rgba(255, 59, 92, 0.25);
+  padding: 1px 5px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+/* ── Signal dots ── */
+.signalDots {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.signalDot {
+  width: 3px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.10);
+  display: block;
+  transition: background 0.2s;
+}
+
+.signalDotActive { background: var(--cyan); }
+
+/* ── Location ── */
+.locationRow {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.pinIcon { flex-shrink: 0; }
+
+.locationName {
+  font-family: var(--font-label);
+  font-size: 10px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Battery bar ── */
+.batteryWrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.batteryTrack {
+  flex: 1;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.batteryFill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.6s ease, background 0.3s;
+}
+
+.batteryPct {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* ── Device meta ── */
+.deviceMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.firmwareTag {
+  font-family: var(--font-label);
+  font-size: 8px;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.lastSeen {
+  font-family: var(--font-label);
+  font-size: 8.5px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+/* ── Fleet summary ── */
+.fleetSummary {
+  display: flex;
+  gap: 12px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 10px;
+  margin-top: auto;
+}
+
+.summaryRow {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.summaryDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.summaryText {
+  font-family: var(--font-label);
+  font-size: 9px;
+  color: var(--text-secondary);
+}

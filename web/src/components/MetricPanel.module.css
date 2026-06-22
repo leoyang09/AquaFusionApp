@@ -1,0 +1,85 @@
+.panel {
+  grid-area: telemetry;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.panelHeader {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.panelTitle {
+  font-family: var(--font-display);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.20em;
+  color: var(--text-muted);
+}
+
+.panelSub {
+  font-family: var(--font-label);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* ── Card grid (asymmetric) ── */
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1.35fr;
+  grid-template-rows: 170px 150px auto;
+  gap: var(--gap);
+  flex: 1;
+}
+
+/* Cards 1 & 2: hero row (full height) */
+.grid > *:nth-child(1) { grid-column: 1; grid-row: 1; }
+.grid > *:nth-child(2) { grid-column: 2; grid-row: 1; }
+
+/* Cards 3 & 4: medium row */
+.grid > *:nth-child(3) { grid-column: 1; grid-row: 2; }
+.grid > *:nth-child(4) { grid-column: 2; grid-row: 2; }
+
+/* Card 5: depth, full width */
+.grid > *:nth-child(5) { grid-column: 1 / -1; grid-row: 3; }
+
+/* ── Waiting state ── */
+.waiting {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: rgba(0, 242, 255, 0.03);
+  padding: 40px 24px;
+}
+
+.waitingPulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--cyan);
+  opacity: 0.6;
+  animation: dot-pulse 1.6s ease-in-out infinite;
+}
+
+.waitingText {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--text-secondary);
+}
+
+.waitingHint {
+  font-family: var(--font-label);
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: center;
+}

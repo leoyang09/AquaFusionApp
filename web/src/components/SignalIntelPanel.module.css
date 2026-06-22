@@ -1,0 +1,207 @@
+.panel {
+  grid-area: intel;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: 16px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.sectionTitle {
+  font-family: var(--font-display);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.20em;
+  color: var(--text-muted);
+}
+
+/* ── Anomaly tag ── */
+.anomalyTag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 59, 92, 0.08);
+  border: 1px solid rgba(255, 59, 92, 0.28);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+}
+
+.anomalyDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #FF3B5C;
+  flex-shrink: 0;
+  animation: dot-pulse 1.4s ease-in-out infinite;
+}
+
+.anomalyLabel {
+  font-family: var(--font-display);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: rgba(255, 59, 92, 0.75);
+}
+
+.anomalySource {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: #FF3B5C;
+  margin-left: auto;
+}
+
+/* ── Sparkline section ── */
+.sparkSection { display: flex; flex-direction: column; gap: 8px; }
+
+.sparkHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.sparkUnit {
+  font-family: var(--font-label);
+  font-size: 9px;
+  color: var(--text-muted);
+}
+
+.sparkWrap {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  min-height: 80px;
+}
+
+.sparkMinMax {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  padding: 4px 0;
+}
+
+.sparkChart { flex: 1; min-width: 0; }
+
+.sparkEmpty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-label);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* ── Recharts overrides ── */
+.sparkChart :global(.recharts-surface) { overflow: visible; }
+.sparkChart :global(.recharts-tooltip-wrapper) { outline: none; }
+
+/* ── Tooltip ── */
+.tooltip {
+  background: rgba(4, 14, 32, 0.95);
+  border: 1px solid var(--border-mid);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--cyan);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.tooltipUnit {
+  font-size: 9px;
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+/* ── Divider ── */
+.divider {
+  height: 1px;
+  background: var(--border-subtle);
+}
+
+/* ── Std deviation bars ── */
+.stdSection { display: flex; flex-direction: column; gap: 10px; }
+
+.bars { display: flex; flex-direction: column; gap: 10px; }
+
+.barRow { display: flex; flex-direction: column; gap: 4px; }
+
+.barMeta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.barLabel {
+  font-family: var(--font-display);
+  font-size: 7.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--text-secondary);
+}
+
+.barValue {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.barTrack {
+  height: 5px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+  position: relative;
+  overflow: visible;
+}
+
+.barFill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1), background 0.3s;
+  animation: bar-fill 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.barThreshold {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* ── Summary ── */
+.summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: auto;
+}
+
+.summaryItem { display: flex; flex-direction: column; gap: 3px; }
+
+.summaryLabel {
+  font-family: var(--font-display);
+  font-size: 7.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+}
+
+.summaryValue {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}

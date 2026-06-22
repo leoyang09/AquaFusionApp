@@ -1,0 +1,104 @@
+.root {
+  min-height: 100dvh;
+  background-color: var(--bg-void);
+  background-repeat: repeat;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ── Scanline overlay (subtle CRT effect) ── */
+.scanline {
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent 0px,
+    transparent 2px,
+    rgba(0, 0, 0, 0.03) 2px,
+    rgba(0, 0, 0, 0.03) 4px
+  );
+  pointer-events: none;
+  z-index: 1000;
+}
+
+/* ── Main command-center grid ── */
+.grid {
+  display: grid;
+  grid-template-columns: 42fr 34fr 24fr;
+  grid-template-rows: 64px 1fr;
+  grid-template-areas:
+    "header  header  header"
+    "telemetry intel  fleet";
+  min-height: 100dvh;
+  gap: var(--gap);
+  padding: var(--gap);
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
+}
+
+/* When diagnostic strip is present, add a third row */
+.grid:has(> *:nth-child(5)) {
+  grid-template-rows: 64px 1fr auto;
+  grid-template-areas:
+    "header  header  header"
+    "telemetry intel  fleet"
+    "diag    diag    diag";
+}
+
+/* ── Ambient alarm glow on root ── */
+.rootAlarm::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 80% 40% at 50% 100%,
+    rgba(255, 59, 92, 0.06) 0%,
+    transparent 70%
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Responsive: below 1200px collapse intel + fleet ── */
+@media (max-width: 1200px) {
+  .grid {
+    grid-template-columns: 1.1fr 0.9fr;
+    grid-template-rows: 64px 1fr auto;
+    grid-template-areas:
+      "header  header"
+      "telemetry intel"
+      "fleet   fleet";
+  }
+
+  .grid:has(> *:nth-child(5)) {
+    grid-template-rows: 64px 1fr auto auto;
+    grid-template-areas:
+      "header  header"
+      "telemetry intel"
+      "fleet   fleet"
+      "diag    diag";
+  }
+}
+
+/* ── Below 768px: single column ── */
+@media (max-width: 768px) {
+  .grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+    grid-template-areas:
+      "header"
+      "telemetry"
+      "intel"
+      "fleet";
+  }
+
+  .grid:has(> *:nth-child(5)) {
+    grid-template-areas:
+      "header"
+      "telemetry"
+      "intel"
+      "fleet"
+      "diag";
+  }
+}

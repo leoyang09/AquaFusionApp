@@ -441,7 +441,7 @@ const styles = StyleSheet.create({
     borderRadius: 14, paddingHorizontal: 14, paddingVertical: 11,
   },
   selectorDot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
-  dotNormal: { backgroundColor: '#4ade80' },
+  dotNormal: { backgroundColor: '#4a9eff' },
   dotAnomaly: { backgroundColor: '#f87171' },
   selectorText: { flex: 1, fontSize: 14, fontWeight: '600', color: '#ffffff' },
   chevronBox: {

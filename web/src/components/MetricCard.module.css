@@ -1,0 +1,187 @@
+.card {
+  position: relative;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+  transition: border-color 0.3s, background 0.3s, box-shadow 0.3s;
+  box-shadow: var(--shadow-card);
+}
+
+.card:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-mid);
+  box-shadow: var(--glow-cyan), var(--shadow-card);
+}
+
+/* ── Anomaly state ── */
+.cardAnomaly {
+  border-color: var(--crimson) !important;
+  background: linear-gradient(135deg, rgba(255,59,92,0.09) 0%, var(--bg-surface) 65%);
+  animation: alarm-pulse 2.2s ease-in-out infinite;
+}
+
+.stripeOverlay {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent 0px,
+    transparent 9px,
+    rgba(255, 59, 92, 0.045) 9px,
+    rgba(255, 59, 92, 0.045) 10px
+  );
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: 0;
+}
+
+/* ── Top row ── */
+.top {
+  display: flex;
+  justify-content: flex-end;
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Status pill ── */
+.statusPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-label);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 3px 8px;
+  border-radius: 20px;
+}
+
+.statusDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ── Value ── */
+.valueRow {
+  position: relative;
+  z-index: 1;
+}
+
+.value {
+  font-family: var(--font-mono);
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+  line-height: 1;
+  display: block;
+}
+
+.valueAnomaly {
+  color: #FF3B5C;
+}
+
+/* ── Label ── */
+.label {
+  font-family: var(--font-display);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Size variants ── */
+.hero .value {
+  font-size: 2.6rem;
+}
+
+/* ── Depth Card ── */
+.depthCard {
+  flex-direction: row;
+  align-items: stretch;
+}
+
+.depthRow {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 20px;
+}
+
+.depthLeft {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+  z-index: 1;
+}
+
+.depthValue {
+  font-size: 3rem !important;
+  font-weight: 800;
+}
+
+.depthBarWrap {
+  width: 48px;
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+  position: relative;
+  z-index: 1;
+}
+
+.depthBarTrack {
+  width: 10px;
+  height: 100px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-subtle);
+  border-radius: 5px;
+  position: relative;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.depthBarFill {
+  width: 100%;
+  border-radius: 5px;
+  transition: height 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  min-height: 4px;
+}
+
+.depthTick {
+  position: absolute;
+  left: 14px;
+  display: flex;
+  align-items: center;
+  height: 1px;
+}
+
+.depthTick::before {
+  content: '';
+  display: block;
+  width: 4px;
+  height: 1px;
+  background: var(--border-subtle);
+  position: absolute;
+  left: -8px;
+}
+
+.depthTickLabel {
+  font-family: var(--font-label);
+  font-size: 7px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}

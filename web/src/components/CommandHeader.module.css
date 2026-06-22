@@ -1,0 +1,234 @@
+.header {
+  grid-area: header;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 20px;
+  background: rgba(7, 20, 40, 0.92);
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  position: relative;
+  z-index: 10;
+  backdrop-filter: blur(12px);
+}
+
+/* ── Logo ── */
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.logoText {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.12em;
+  color: var(--text-primary);
+}
+
+.logoBadge {
+  font-family: var(--font-label);
+  font-size: 8px;
+  letter-spacing: 0.18em;
+  color: var(--cyan-dim);
+  background: rgba(0, 242, 255, 0.08);
+  border: 1px solid var(--border-subtle);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+/* ── Sonde Selector ── */
+.selectorWrap {
+  position: relative;
+  margin-left: auto;
+}
+
+.selectorBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  min-width: 200px;
+}
+
+.selectorBtn:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-mid);
+}
+
+.selectorDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dotNormal { background: #00FF87; }
+.dotAnomaly {
+  background: #FF3B5C;
+  animation: dot-pulse 1.5s ease-in-out infinite;
+}
+
+.selectorLabel {
+  font-family: var(--font-label);
+  font-size: 12px;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.selectorSub {
+  font-family: var(--font-label);
+  font-size: 10px;
+  color: var(--text-muted);
+  flex: 1;
+}
+
+.chevron {
+  color: var(--text-secondary);
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+
+.chevronOpen {
+  transform: rotate(180deg);
+}
+
+.dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: rgba(4, 14, 32, 0.98);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-sm);
+  list-style: none;
+  z-index: 100;
+  overflow: hidden;
+  backdrop-filter: blur(16px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+}
+
+.dropdownItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.dropdownItem:last-child { border-bottom: none; }
+
+.dropdownItem:hover { background: rgba(0, 242, 255, 0.06); }
+
+.dropdownItemActive { background: rgba(0, 242, 255, 0.08); }
+
+.dropDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  flex-shrink: 0;
+}
+
+.dropDotActive { background: var(--cyan); }
+
+.dropLabel {
+  font-family: var(--font-label);
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.dropdownItemActive .dropLabel { color: var(--text-primary); }
+
+.dropSub {
+  font-family: var(--font-label);
+  font-size: 10px;
+  color: var(--text-muted);
+  flex: 1;
+}
+
+.checkmark { margin-left: auto; flex-shrink: 0; }
+
+/* ── Status Badge ── */
+.statusBadge {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  border: 1px solid;
+  flex-shrink: 0;
+}
+
+.statusNormal {
+  background: rgba(0, 255, 135, 0.07);
+  border-color: rgba(0, 255, 135, 0.22);
+}
+
+.statusAnomaly {
+  background: rgba(255, 59, 92, 0.08);
+  border-color: rgba(255, 59, 92, 0.30);
+}
+
+.statusDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.statusDotOk {
+  background: #00FF87;
+  box-shadow: 0 0 6px rgba(0, 255, 135, 0.6);
+}
+
+.statusDotAlarm {
+  background: #FF3B5C;
+  box-shadow: 0 0 6px rgba(255, 59, 92, 0.8);
+  animation: dot-pulse 1.4s ease-in-out infinite;
+}
+
+.statusText {
+  font-family: var(--font-display);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+.statusNormal .statusText { color: #00FF87; }
+.statusAnomaly .statusText { color: #FF3B5C; }
+
+/* ── Clock ── */
+.clock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex-shrink: 0;
+  gap: 1px;
+}
+
+.clockLabel {
+  font-family: var(--font-label);
+  font-size: 8px;
+  letter-spacing: 0.16em;
+  color: var(--text-muted);
+}
+
+.clockValue {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--cyan-dim);
+  letter-spacing: 0.04em;
+}

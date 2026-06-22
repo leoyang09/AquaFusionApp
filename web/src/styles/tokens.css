@@ -1,0 +1,53 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&family=Syncopate:wght@400;700&family=Share+Tech+Mono&display=swap');
+
+:root {
+  /* ── Backgrounds ── */
+  --bg-void:        #010B18;
+  --bg-surface:     #071428;
+  --bg-panel:       rgba(7, 20, 40, 0.88);
+  --bg-card:        rgba(255, 255, 255, 0.035);
+  --bg-card-hover:  rgba(0, 242, 255, 0.055);
+
+  /* ── Accents ── */
+  --cyan:           #00F2FF;
+  --cyan-dim:       rgba(0, 242, 255, 0.55);
+  --amber:          #FF9500;
+  --crimson:        #FF3B5C;
+  --green:          #00FF87;
+
+  /* ── Borders ── */
+  --border-subtle:  rgba(0, 242, 255, 0.08);
+  --border-mid:     rgba(0, 242, 255, 0.20);
+  --border-bright:  rgba(0, 242, 255, 0.48);
+
+  /* ── Text ── */
+  --text-primary:   #E8F4FF;
+  --text-secondary: rgba(232, 244, 255, 0.52);
+  --text-muted:     rgba(232, 244, 255, 0.26);
+  --text-cyan:      #00F2FF;
+
+  /* ── Status ── */
+  --status-ok:      #00FF87;
+  --status-ok-bg:   rgba(0, 255, 135, 0.10);
+  --status-warn:    #fbbf24;
+  --status-warn-bg: rgba(251, 191, 36, 0.10);
+  --status-crit:    #FF3B5C;
+  --status-crit-bg: rgba(255, 59, 92, 0.10);
+
+  /* ── Fonts ── */
+  --font-mono:      'JetBrains Mono', 'Courier New', monospace;
+  --font-display:   'Syncopate', sans-serif;
+  --font-label:     'Share Tech Mono', monospace;
+
+  /* ── Spacing ── */
+  --gap:            10px;
+  --radius:         10px;
+  --radius-sm:      6px;
+
+  /* ── Shadows ── */
+  --glow-cyan:      0 0 20px rgba(0, 242, 255, 0.14);
+  --glow-alarm:     0 0 0 1px var(--crimson),
+                    0 0 28px rgba(255, 59, 92, 0.38),
+                    inset 0 0 36px rgba(255, 59, 92, 0.08);
+  --shadow-card:    0 2px 16px rgba(0, 0, 0, 0.45);
+}

@@ -163,7 +163,7 @@ function ConfidenceBar({ value, color }: { value: number; color: string }) {
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function InsightsScreen() {
-  const { currentMetrics, selectedSondeId, alarmLatchPerSonde, timeTick: _timeTick } = useData();
+  const { currentMetrics, selectedSondeId, alarmLatchPerSonde, timeTick: _timeTick, devicesList } = useData();
 
   const latch = alarmLatchPerSonde[selectedSondeId] ?? null;
   const isLatched = latch !== null;
@@ -174,8 +174,15 @@ export default function InsightsScreen() {
     ? (ANOMALY_INSIGHTS[activeSource] ?? ANOMALY_INSIGHTS['dissolved_oxygen'])
     : STABLE_INSIGHT;
 
-  const sondeName =
-    selectedSondeId === 'sonde_12' ? 'Pine Lake (Sonde #12)' : 'Wetland Creek (Sonde #45)';
+  const registeredDevice = devicesList.find((d) => d.sonde_id === selectedSondeId);
+  const deviceDisplayName = (id: string) => {
+    const m = id.match(/^sonde_(\w+)$/i);
+    if (m) return `Sonde #${m[1]}`;
+    return id.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  };
+  const sondeName = registeredDevice
+    ? `${registeredDevice.location_name} (${deviceDisplayName(selectedSondeId)})`
+    : deviceDisplayName(selectedSondeId);
 
   return (
     <LinearGradient colors={['#001C44', '#003B80']} style={styles.gradient}>
@@ -187,7 +194,7 @@ export default function InsightsScreen() {
           <View style={styles.header}>
             <Text style={styles.headerTitle}>AI Insights</Text>
             <View style={styles.modelBadge}>
-              <View style={[styles.modelDot, { backgroundColor: isAlarmActive ? '#f87171' : '#4ade80' }]} />
+              <View style={[styles.modelDot, { backgroundColor: '#4a9eff' }]} />
               <Text style={styles.modelText}>AquaAI v2.4</Text>
             </View>
           </View>
