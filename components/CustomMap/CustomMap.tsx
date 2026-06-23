@@ -4,7 +4,7 @@ import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import MapView, { Marker, Callout, Region } from 'react-native-maps';
 import { useData } from '@/src/DataContext';
 import type { RegisteredDevice } from '@/src/DataContext';
@@ -108,6 +108,7 @@ export default function CustomMap() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const mapRef = useRef<MapView>(null);
+  const hasCenteredRef = useRef(false);
 
   const selected = sites.find((s) => s.sonde_id === selectedId) ?? sites[0] ?? null;
 
@@ -118,6 +119,13 @@ export default function CustomMap() {
       450,
     );
   }
+
+  useEffect(() => {
+    if (hasCenteredRef.current || sites.length === 0) return;
+    hasCenteredRef.current = true;
+    const t = setTimeout(() => focusSite(sites[0]), 400);
+    return () => clearTimeout(t);
+  }, [sites.length]);
 
   const selectedMetrics = selected ? metricsPerSonde[selected.sonde_id] : undefined;
   const selectedIsAnomaly = !!selectedMetrics?.isAnomaly;

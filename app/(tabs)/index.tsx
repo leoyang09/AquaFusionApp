@@ -24,31 +24,34 @@ type SensorStatus = { label: string; color: string; bg: string };
 const STATUS_OK:   SensorStatus = { label: 'Optimal',  color: '#4ade80', bg: 'rgba(74,222,128,0.12)' };
 const STATUS_WARN: SensorStatus = { label: 'Marginal',  color: '#fbbf24', bg: 'rgba(251,191,36,0.12)' };
 const STATUS_CRIT: SensorStatus = { label: 'Critical',  color: '#f87171', bg: 'rgba(248,113,113,0.12)' };
+const STATUS_NONE: SensorStatus = { label: 'No Data',   color: '#6b7280', bg: 'rgba(107,114,128,0.10)' };
 
-function tempStatus(v: number): SensorStatus {
-  if (v >= 10 && v <= 20) return { ...STATUS_OK };
-  if (v >= 5  && v <= 25) return { ...STATUS_WARN, label: 'Marginal' };
+function tempStatus(v: number | null | undefined): SensorStatus {
+  if (v == null || !isFinite(v)) return { ...STATUS_NONE };
+  if (v >= 22 && v <= 25) return { ...STATUS_OK };
+  if (v >= 15 && v <= 28) return { ...STATUS_WARN, label: 'Marginal' };
   return { ...STATUS_CRIT, label: 'Out of Range' };
 }
-function doStatus(v: number): SensorStatus {
-  if (v >= 7) return { ...STATUS_OK };
-  if (v >= 5) return { ...STATUS_WARN, label: 'Low' };
+function doStatus(v: number | null | undefined): SensorStatus {
+  if (v == null || !isFinite(v)) return { ...STATUS_NONE };
+  if (v >= 5) return { ...STATUS_OK };
+  if (v >= 3) return { ...STATUS_WARN, label: 'Low' };
   return { ...STATUS_CRIT, label: 'Hypoxic' };
 }
-function phStatus(v: number): SensorStatus {
+function phStatus(v: number | null | undefined): SensorStatus {
+  if (v == null || !isFinite(v)) return { ...STATUS_NONE };
   if (v >= 6.5 && v <= 8.5) return { ...STATUS_OK, label: 'Neutral' };
   if (v >= 5.5 && v <= 9.5) return { ...STATUS_WARN };
   return { ...STATUS_CRIT };
 }
-function turbStatus(v: number): SensorStatus {
+function turbStatus(v: number | null | undefined): SensorStatus {
+  if (v == null || !isFinite(v)) return { ...STATUS_NONE };
   if (v <= 10) return { ...STATUS_OK, label: 'Clear' };
   if (v <= 25) return { ...STATUS_WARN, label: 'Moderate' };
   return { ...STATUS_CRIT, label: 'High' };
 }
-function depthStatus(v: number): SensorStatus {
-  if (v >= 0.5 && v <= 3.0) return { ...STATUS_OK, label: 'Normal' };
-  if (v >= 0.2 && v <= 5.0) return { ...STATUS_WARN };
-  return { ...STATUS_CRIT };
+function depthStatus(_v: number | null | undefined): SensorStatus {
+  return { ...STATUS_OK, label: 'Normal' };
 }
 
 // ─── Diagnostic banner ───────────────────────────────────────────────────────
