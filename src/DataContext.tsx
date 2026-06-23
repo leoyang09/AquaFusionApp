@@ -276,7 +276,7 @@ async function registerForPushNotificationsAsync(sondeId: string): Promise<void>
 // ─── Context ──────────────────────────────────────────────────────────────────
 
 export const DataContext = createContext<DataContextValue>({
-  selectedSondeId: 'device_12',
+  selectedSondeId: 'device_1',
   setSelectedSondeId: () => {},
   metricsPerSonde: { ...SONDE_SEEDS },
   currentMetrics: EMPTY_METRICS,
@@ -290,7 +290,7 @@ export const DataContext = createContext<DataContextValue>({
 });
 
 export function DataProvider({ children }: { children: React.ReactNode }) {
-  const [selectedSondeId, setSelectedSondeId] = useState<SondeId>('device_12');
+  const [selectedSondeId, setSelectedSondeId] = useState<SondeId>('device_1');
   const [metricsPerSonde, setMetricsPerSonde] = useState<Record<string, MetricsState>>({
     ...SONDE_SEEDS,
   });
