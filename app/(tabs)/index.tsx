@@ -71,16 +71,23 @@ const SOURCE_DISPLAY_NAMES: Record<string, string> = {
   water_depth:      'Water Depth',
 };
 
+function statusPriority(s: SensorStatus): number {
+  if (s.color === STATUS_CRIT.color) return 2;
+  if (s.color === STATUS_WARN.color) return 1;
+  return 0;
+}
+
 function resolveSourceName(source: string, m: MetricsState): string {
-  if (source && SOURCE_DISPLAY_NAMES[source]) return SOURCE_DISPLAY_NAMES[source];
-  const scores = [
-    { name: 'Dissolved Oxygen', score: m.rawDO < 5 ? 2 : m.rawDO < 7 ? 1 : 0 },
-    { name: 'Turbidity',        score: m.rawTurbidity > 25 ? 2 : m.rawTurbidity > 10 ? 1 : 0 },
-    { name: 'Temperature',      score: (m.rawTemp < 5 || m.rawTemp > 25) ? 2 : (m.rawTemp < 10 || m.rawTemp > 20) ? 1 : 0 },
-    { name: 'pH',               score: (m.rawPH < 5.5 || m.rawPH > 9.5) ? 2 : (m.rawPH < 6.5 || m.rawPH > 8.5) ? 1 : 0 },
-    { name: 'Water Depth',      score: (m.rawDepth < 0.2 || m.rawDepth > 5.0) ? 2 : (m.rawDepth < 0.5 || m.rawDepth > 3.0) ? 1 : 0 },
+  if (source && SOURCE_DISPLAY_NAMES[source] && source !== 'water_depth') {
+    return SOURCE_DISPLAY_NAMES[source];
+  }
+  const candidates = [
+    { name: 'Temperature',      priority: statusPriority(tempStatus(m.rawTemp)) },
+    { name: 'Dissolved Oxygen', priority: statusPriority(doStatus(m.rawDO)) },
+    { name: 'pH',               priority: statusPriority(phStatus(m.rawPH)) },
+    { name: 'Turbidity',        priority: statusPriority(turbStatus(m.rawTurbidity)) },
   ];
-  return scores.reduce((a, b) => (b.score >= a.score ? b : a)).name;
+  return candidates.reduce((a, b) => (b.priority > a.priority ? b : a)).name;
 }
 
 function getDiagnosticInfo(
